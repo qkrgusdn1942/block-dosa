@@ -10,7 +10,7 @@
 | 스타일 | CSS (CSS 변수로 테마) | 애니메이션은 CSS transition, keyframes |
 | 테스트 | Vitest | 점수 계산, 줄 지우기 단위 테스트 |
 | 저장 | localStorage | 서버 없이 |
-| 배포 | GitHub Pages 또는 Cloudflare Pages | 무료 정적 호스팅 |
+| 배포 | GitHub Pages ([qkrgusdn1942.github.io/block-dosa](https://qkrgusdn1942.github.io/block-dosa/)) | 무료 정적 호스팅. main에 push하면 Actions가 테스트·빌드·배포 |
 | 설치 | PWA (홈 화면 추가) ⏳ | 앱처럼 실행, 아이폰 저장 데이터 보호 |
 
 ## 코드 구조 (안)
