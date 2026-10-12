@@ -2,6 +2,8 @@ import {
   BASE_DISCARDS,
   BASE_HANDS,
   BOARD_SIZE,
+  BONUS_WEIGHTS,
+  FREE_UNDOS,
   GEM_GOLD,
   HAND_SIZE,
   MAX_BONUS_CELLS,
@@ -26,8 +28,10 @@ import {
   LUCKY_MULT_CHANCE,
   type Enhancement,
 } from '../content/enhancements';
+import { ICE_CHANCE, OBSTACLES, type ObstacleId } from '../content/obstacles';
 import type { TalismanInstance } from '../content/talismans';
 import {
+  area3x3,
   axisLine,
   canPlace,
   clearLines,
@@ -40,19 +44,24 @@ import {
   isBoardEmpty,
   lineCount,
   placeCells,
+  scatterCells,
+  sweepCells,
   type Board,
   type ClearedCell,
   type LineAxis,
+  type Lines,
 } from './board';
 import { clearGold, growOnClear, passiveTotals, talismanModifiers } from './effects';
 import { levelUp, moveTalisman, replaceAt } from './loadout';
 import { extent, orientations, rotatePiece, rotations, type Cell, type Piece } from './pieces';
 import { Rng } from './rng';
 import { MAX_SCORE, scoreClear, type ClearContext, type EnhanceTally, type ScoreResult } from './scoring';
+import { pickWeighted, randomScroll } from './shop';
 
 /** 판 하나의 진행 → docs/01-core-rules.md */
 
-export type BonusKind = 'gem' | 'star';
+/** 빈칸 위 보너스 칸. curse(🕸️ 저주 칸)는 방해 칸이지만 같은 방식으로 발동한다 */
+export type BonusKind = 'gem' | 'star' | 'scroll' | 'curse';
 export type StageStatus = 'playing' | 'cleared' | 'failed';
 export type FailReason = 'hands' | 'stuck';
 
@@ -69,14 +78,19 @@ export interface ClearEvent {
   cleared: ClearedCell[];
   gems: number;
   stars: number;
-  /** 🐍 이무기가 줄을 밀어서 지워졌는지 */
+  /** 🐍 이무기가 줄을 밀어서 지워졌는지 / 🧹 빗자루로 지웠는지 */
   shifted: boolean;
+  swept: boolean;
   /** 이 클리어로 얻은 골드 (보석 칸, 금·행운 블록, 부적) */
   gold: number;
   /** 행운 블록이 터진 횟수 */
   lucky: number;
   /** 깨져서 가방에서 사라진 유리 블록 수 */
   broken: number;
+  /** 📜 두루마리 칸으로 받은 비전서 수 */
+  scrolls: number;
+  /** 🕸️ 저주 칸이 들어간 수 */
+  curses: number;
 }
 
 export interface StageStats {
@@ -105,6 +119,10 @@ export interface StageSetup {
   extraDiscards: number;
   /** 난이도로 판 1·판 2에 더 놓이는 바위 */
   extraRocks: number;
+  /** 이번 판의 방해 칸 (판 1·판 2만) */
+  obstacle: ObstacleId | null;
+  /** 소모품 칸 수 (📜 두루마리 칸은 칸이 비어 있을 때만 비전서를 준다) */
+  consumableSlots: number;
   /** 수련 "기사회생"이 이번 런에 남아 있는지 */
   rescue: boolean;
   /** 끝판: 목표 없이 핸드를 다 쓸 때까지 점수 내기 */
@@ -130,10 +148,12 @@ export interface StageState {
   bag: readonly BagEntry[];
   /** 이번 섞기에서 아직 안 나온 블록 (가방 id) */
   pile: readonly number[];
-  /** 랜덤 스트림 상태 → docs/12-tech.md */
+  /** 랜덤 스트림 상태 → docs/12-tech.md. bossRng는 방해 칸도 같이 쓴다 (요괴 판에는 방해 칸이 없다) */
   bagRng: number;
   bossRng: number;
   luckRng: number;
+  obstacle: ObstacleId | null;
+  consumableSlots: number;
   hand: ReadonlyArray<Piece | null>;
   /** 🎒 보따리에 넣어 둔 블록 */
   stash: Piece | null;
@@ -174,7 +194,13 @@ export interface StageState {
   toast: StageToast | null;
   /** 끝판: 목표가 없고, 핸드를 다 쓰거나 막히면 그때까지의 점수로 끝난다 */
   scoreAttack: boolean;
+  /** 되돌리기로 돌아갈 상태: 마지막으로 블록을 놓기 직전. 다른 걸 하면 지운다 */
+  undo: StageSnapshot | null;
+  /** 이번 판에 남은 무료 되돌리기 */
+  undoLeft: number;
 }
+
+export type StageSnapshot = Omit<StageState, 'undo'>;
 
 /** 손의 칸 번호, 또는 보관함 */
 export type HandSlot = number | 'stash';
@@ -185,7 +211,8 @@ export type StageAction =
   | { type: 'rotate'; slot: HandSlot }
   | { type: 'stash'; slot: number }
   | { type: 'reveal'; slot: number }
-  | { type: 'useConsumable'; index: number; slot?: HandSlot; cell?: number; axis?: LineAxis }
+  | { type: 'useConsumable'; index: number; cell?: number; axis?: LineAxis }
+  | { type: 'undo' }
   | { type: 'moveTalisman'; uid: number; dir: -1 | 1 }
   | { type: 'giveUp' };
 
@@ -211,6 +238,8 @@ export function createStage(setup: StageSetup): StageState {
     bagRng: bagRng.state,
     bossRng: stream('boss').state,
     luckRng: stream('luck').state,
+    obstacle: setup.obstacle,
+    consumableSlots: setup.consumableSlots,
     hand: [],
     stash: null,
     stashEnabled: false,
@@ -239,6 +268,8 @@ export function createStage(setup: StageSetup): StageState {
     rescued: false,
     toast: null,
     scoreAttack: setup.scoreAttack,
+    undo: null,
+    undoLeft: FREE_UNDOS,
   };
 
   // 1. 요괴 (물귀신의 물, 구미호의 봉인)
@@ -248,10 +279,15 @@ export function createStage(setup: StageSetup): StageState {
   const boardRng = stream('board');
   const [smallRocks, bigRocks] = ROCKS_BY_ANTE[Math.min(ante, ROCKS_BY_ANTE.length) - 1];
   const rocks = kind === 'small' ? smallRocks : kind === 'big' ? bigRocks : null;
-  const board = rocks === null ? stage.board : placeRocks(stage.board, rocks + setup.extraRocks, boardRng);
-  const bonus = placeBonusCells(board, boardRng);
+  const board =
+    rocks === null ? stage.board : scatterCells(stage.board, rocks + setup.extraRocks, boardRng, makeRock);
+  stage = { ...stage, board, bonus: placeBonusCells(board, boardRng) };
 
-  // 4. 장착만 해도 적용되는 부적 (봉인 반영)과 수련·난이도. 요괴 규칙(저승사자)은 그 위에 마지막으로
+  // 4. 방해 칸 (자물쇠·이끼·시한폭탄·저주 칸은 여기서 놓이고, 얼음은 블록을 뽑을 때)
+  const placeObstacle = setup.obstacle ? OBSTACLES[setup.obstacle].onStageStart : undefined;
+  if (placeObstacle) stage = placeObstacle(stage, stream('obstacle'));
+
+  // 5. 장착만 해도 적용되는 부적 (봉인 반영)과 수련·난이도. 요괴 규칙(저승사자)은 그 위에 마지막으로
   const passive = passiveTotals(stage.talismans, stage.sealedUid);
   const base: StageRules = {
     hands: Math.max(1, BASE_HANDS + setup.extraHands + passive.hands),
@@ -261,8 +297,6 @@ export function createStage(setup: StageSetup): StageState {
   const rules = stageBoss(stage)?.adjustRules?.(base) ?? base;
   stage = {
     ...stage,
-    board,
-    bonus,
     rules,
     rotation: passive.rotation,
     stashEnabled: passive.stash,
@@ -270,7 +304,7 @@ export function createStage(setup: StageSetup): StageState {
     discardsLeft: rules.discards,
   };
 
-  // 5. 첫 핸드
+  // 6. 첫 핸드
   return drawHand(stage);
 }
 
@@ -282,41 +316,30 @@ function runBossHook(stage: StageState, hook: 'onStageStart' | 'onHandDraw' | 'o
   return { ...next, bossRng: rng.state };
 }
 
+/** 🌿 이끼 번지기, 💣 시한폭탄 초읽기 */
+function runObstacleHandEnd(stage: StageState): StageState {
+  const run = stage.obstacle ? OBSTACLES[stage.obstacle].onHandEnd : undefined;
+  if (!run) return stage;
+  const rng = new Rng(stage.bossRng);
+  const next = run(stage, rng);
+  return { ...next, bossRng: rng.state };
+}
+
 const RANGE = Array.from({ length: BOARD_SIZE }, (_, i) => i);
 const rowOf = (index: number) => Math.floor(index / BOARD_SIZE);
 const colOf = (index: number) => index % BOARD_SIZE;
-/** 블록이나 바위 (물·빈칸 아님) */
+/** 블록·바위·방해 칸 (물·빈칸 아님) */
 const isSolid = (cell: Board[number]) => cell !== null && cell.kind !== 'water';
+const makeRock = () => ({ kind: 'rock', cracked: false }) as const;
 
-/** 같은 가로·세로줄이거나 붙어 있으면(대각선 포함) 같이 둘 수 없다 → 시작부터 막히는 판 방지 */
-function rocksConflict(a: number, b: number): boolean {
-  const sameLine = rowOf(a) === rowOf(b) || colOf(a) === colOf(b);
-  const touching = Math.abs(rowOf(a) - rowOf(b)) <= 1 && Math.abs(colOf(a) - colOf(b)) <= 1;
-  return sameLine || touching;
-}
-
-function placeRocks(board: Board, count: number, rng: Rng): Board {
-  let next = board;
-  const placed: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const candidates = emptyCells(next).filter((index) => placed.every((other) => !rocksConflict(index, other)));
-    if (candidates.length === 0) break;
-    const index = candidates[rng.int(candidates.length)];
-    const copy = next.slice();
-    copy[index] = { kind: 'rock', cracked: false };
-    next = copy;
-    placed.push(index);
-  }
-  return next;
-}
-
+/** 💎 보석 50%, ⭐ 별 35%, 📜 두루마리 15% */
 function placeBonusCells(board: Board, rng: Rng): Record<number, BonusKind> {
   const bonus: Record<number, BonusKind> = {};
   const count = rng.int(MAX_BONUS_CELLS + 1);
   for (let i = 0; i < count; i++) {
     const candidates = emptyCells(board).filter((index) => bonus[index] === undefined);
     if (candidates.length === 0) break;
-    bonus[candidates[rng.int(candidates.length)]] = rng.next() < 0.5 ? 'gem' : 'star';
+    bonus[candidates[rng.int(candidates.length)]] = pickWeighted(rng, BONUS_WEIGHTS);
   }
   return bonus;
 }
@@ -345,6 +368,17 @@ export function canFit(stage: StageState, piece: Piece): boolean {
   return variants.some((cells) => fitsAnywhere(stage.board, cells));
 }
 
+/**
+ * 이 블록을 지금 집을 수 있는가. 🐅 가려진 블록은 핸드의 마지막 블록으로만 집는다.
+ * 손의 다른 블록을 모두 놓을 자리가 없으면 바로 풀린다 (가려진 탓에 막히지 않게)
+ */
+export function canPick(stage: StageState, slot: HandSlot): boolean {
+  const piece = pieceAt(stage, slot);
+  if (!piece) return false;
+  if (!piece.hidden || stage.resolvedThisHand + 1 >= PIECES_PER_HAND) return true;
+  return stage.hand.every((other, i) => i === slot || other === null || !canFit(stage, other));
+}
+
 /** 손과 보관함의 블록을 어디에도 못 놓는가 */
 export function isStuck(stage: StageState): boolean {
   const pieces = stage.hand.filter((piece): piece is Piece => piece !== null);
@@ -355,9 +389,15 @@ export function isStuck(stage: StageState): boolean {
   return !(stage.stashEnabled && !stage.stash && stage.resolvedThisHand + 1 >= PIECES_PER_HAND);
 }
 
-/** 막혔을 때 쓸 수 있는 소모품(망치, 부채, 빗자루)이 있는가 */
+/** 되돌리기를 지금 쓸 수 있는가 (판마다 무료 횟수, 바로 앞에 블록을 놓았을 때) */
+export const canUndo = (stage: StageState) => stage.undo !== null && stage.undoLeft > 0;
+
+/** 막혔을 때 풀 수단(망치, 빗자루, 아직 안 쓴 부채, 되돌리기)이 있는가 */
 export const hasRescue = (stage: StageState) =>
-  stage.consumables.some((item) => item.kind === 'hammer' || item.kind === 'fan' || item.kind === 'broom');
+  canUndo(stage) ||
+  stage.consumables.some(
+    (item) => item.kind === 'hammer' || item.kind === 'broom' || (item.kind === 'fan' && !stage.rotation),
+  );
 
 /** 가방에서 1개 뽑기. 다 떨어지면 손·보관함에 있는 블록을 뺀 나머지를 다시 섞는다 */
 export function drawPiece(
@@ -378,6 +418,8 @@ export function drawPiece(
   const cells = options[rng.int(options.length)];
   const piece: Piece = { uid: stage.nextUid, bagId, shape: entry.shape, cells, ...extent(cells) };
   if (entry.enh) piece.enh = entry.enh;
+  // 🧊 얼음 판에서는 가끔 언 블록이 나온다
+  if (stage.obstacle === 'ice' && rng.next() < ICE_CHANCE) piece.frozen = true;
   return { stage: { ...stage, pile: rest, bagRng: rng.state, nextUid: stage.nextUid + 1 }, piece };
 }
 
@@ -449,14 +491,15 @@ interface EnhanceOutcome {
   glassBagIds: number[];
 }
 
-function rollEnhancements(cleared: readonly ClearedCell[], rng: Rng, goldCellMult: number): EnhanceOutcome {
+/** removed = 이번에 사라진 블록 칸 (얼음만 깨진 칸은 남아 있으니 발동하지 않는다) */
+function rollEnhancements(removed: readonly ClearedCell[], rng: Rng, goldCellMult: number): EnhanceOutcome {
   const tally: EnhanceTally = { crystal: 0, fire: 0, lucky: 0, glass: 0 };
   let goldCells = 0;
   let gold = 0;
   let luckyHits = 0;
   const luckyPieces = new Set<string>();
   const glassPieces = new Map<string, number | undefined>();
-  for (const { index, cell } of cleared) {
+  for (const { index, cell } of removed) {
     if (cell.kind !== 'block' || !cell.enh) continue;
     // 블록 번호가 없는 칸(예전 저장)은 칸 하나를 블록 하나로 본다
     const piece = cell.piece !== undefined ? `p${cell.piece}` : `c${index}`;
@@ -508,37 +551,55 @@ function breakGlass(stage: StageState, bagIds: readonly number[], rng: Rng) {
   return { bag, pile, broken };
 }
 
-/** 꽉 찬 줄을 지우고 점수를 매긴다. placed = 줄을 완성한 블록 (이무기가 밀었으면 null) */
-function resolveClears(stage: StageState, placed: PlacedPiece | null): StageState {
-  const lines = fullLines(stage.board);
-  const count = lineCount(lines);
-  if (count === 0) return stage;
+/** 무엇이 줄을 지웠나: 놓은 블록 / 🐍 이무기가 민 줄 / 🧹 빗자루 */
+type ClearSource = { kind: 'piece'; piece: PlacedPiece } | { kind: 'shift' } | { kind: 'broom' };
 
+/** 꽉 찬 줄을 지우고 점수를 매긴다 */
+function resolveClears(stage: StageState, source: ClearSource): StageState {
+  const lines = fullLines(stage.board);
+  if (lineCount(lines) === 0) return stage;
+  const { board, cleared } = clearLines(stage.board, lines);
+  return scoreCleared(stage, lines, board, cleared, source);
+}
+
+/** 지운 결과에 점수·보너스 칸·강화·골드를 매긴다 (줄 완성, 이무기, 빗자루가 같이 쓴다) */
+function scoreCleared(
+  stage: StageState,
+  lines: Lines,
+  board: Board,
+  cleared: ClearedCell[],
+  source: ClearSource,
+): StageState {
+  const count = lineCount(lines);
+  const placed = source.kind === 'piece' ? source.piece : null;
   const boss = stageBoss(stage);
   const filledBefore = filledCount(stage.board);
   const corners = cornersFilled(stage.board);
-  const { board, cleared } = clearLines(stage.board, lines);
 
-  // 블록이 덮고 있던 보너스 칸이 함께 지워지면 발동
-  const bonusHits = cleared.filter((c) => c.cell.kind === 'block' && stage.bonus[c.index] !== undefined);
-  const gems = bonusHits.filter((c) => stage.bonus[c.index] === 'gem').length;
-  const stars = bonusHits.length - gems;
+  // 블록이 덮고 있던 보너스 칸이 함께 지워지면 발동 (얼음만 깨진 칸은 아직 덮고 있다)
+  const removedBlocks = cleared.filter((c) => c.cell.kind === 'block' && c.outcome === 'removed');
+  const bonusHits = removedBlocks.filter((c) => stage.bonus[c.index] !== undefined);
+  const countHits = (kind: BonusKind) => bonusHits.filter((c) => stage.bonus[c.index] === kind).length;
+  const gems = countHits('gem');
+  const stars = countHits('star');
+  const curses = countHits('curse');
   const bonus = { ...stage.bonus };
   for (const hit of bonusHits) delete bonus[hit.index];
 
   const luck = new Rng(stage.luckRng);
   const { goldCellMult } = passiveTotals(stage.talismans, stage.sealedUid);
   // 🐻 불가사리 판에서는 강화가 꺼진다
-  const enhance = boss?.disablesEnhancements ? null : rollEnhancements(cleared, luck, goldCellMult);
+  const enhance = boss?.disablesEnhancements ? null : rollEnhancements(removedBlocks, luck, goldCellMult);
   const streak = stage.streak + 1;
   const perfect = isBoardEmpty(board);
   const ctx: ClearContext = {
     rows: lines.rows.length,
     cols: lines.cols.length,
-    cellCount: cleared.filter((c) => c.cell.kind === 'block').length,
+    cellCount: removedBlocks.length,
     streak,
     perfect,
     stars,
+    curses,
     pieceKind: placed?.kind ?? null,
     filledBefore,
     filledAfter: filledCount(board),
@@ -557,11 +618,17 @@ function resolveClears(stage: StageState, placed: PlacedPiece | null): StageStat
   // 🔥 강철이 판에서는 골드를 못 얻는다
   const gold = boss?.drought ? 0 : earned;
   const glass = breakGlass(stage, enhance?.glassBagIds ?? [], luck);
+  // 📜 두루마리 칸: 소모품 칸이 비어 있으면 비전서 1장
+  const consumables = stage.consumables.slice();
+  for (let i = 0; i < countHits('scroll') && consumables.length < stage.consumableSlots; i++) {
+    consumables.push(randomScroll(luck));
+  }
 
   const next: StageState = {
     ...stage,
     board,
     bonus,
+    consumables,
     bag: glass.bag,
     pile: glass.pile,
     streak,
@@ -577,10 +644,13 @@ function resolveClears(stage: StageState, placed: PlacedPiece | null): StageStat
       cleared,
       gems,
       stars,
-      shifted: placed === null,
+      shifted: source.kind === 'shift',
+      swept: source.kind === 'broom',
       gold,
       lucky: enhance?.luckyHits ?? 0,
       broken: glass.broken,
+      scrolls: consumables.length - stage.consumables.length,
+      curses,
     },
     stats: {
       ...stage.stats,
@@ -610,7 +680,7 @@ function settle(stage: StageState): StageState {
       streak: current.clearedThisHand ? current.streak : 0,
       clearedThisHand: false,
     };
-    current = resolveClears(runBossHook(current, 'onHandEnd'), null);
+    current = resolveClears(runObstacleHandEnd(runBossHook(current, 'onHandEnd')), { kind: 'shift' });
     if (current.status === 'cleared') return current;
     if (current.handNumber >= current.rules.hands) return fail(current, 'hands');
     current = drawHand({ ...current, handNumber: current.handNumber + 1, clearedThisHand: false });
@@ -621,9 +691,9 @@ function settle(stage: StageState): StageState {
 
 function place(stage: StageState, slot: HandSlot, row: number, col: number): StageState {
   const piece = pieceAt(stage, slot);
-  if (!piece || !canPlace(stage.board, piece.cells, row, col)) return stage;
+  if (!piece || !canPick(stage, slot) || !canPlace(stage.board, piece.cells, row, col)) return stage;
   const fromHand = slot !== 'stash';
-  const meta = { enh: piece.enh, piece: piece.uid, bagId: piece.bagId };
+  const meta = { enh: piece.enh, piece: piece.uid, bagId: piece.bagId, frozen: piece.frozen };
   const next = resolveClears(
     {
       ...withPiece(stage, slot, null),
@@ -632,10 +702,19 @@ function place(stage: StageState, slot: HandSlot, row: number, col: number): Sta
       resolvedThisHand: stage.resolvedThisHand + (fromHand ? 1 : 0),
       placedThisHand: stage.placedThisHand + 1,
       stats: { ...stage.stats, placed: stage.stats.placed + 1 },
+      // ↩ 되돌리기로 이 블록을 놓기 전으로 돌아갈 수 있다
+      undo: snapshot(stage),
     },
-    { kind: SHAPES[piece.shape].kind, touchesEdge: touchesEdge(piece.cells, row, col) },
+    { kind: 'piece', piece: { kind: SHAPES[piece.shape].kind, touchesEdge: touchesEdge(piece.cells, row, col) } },
   );
   return next.status === 'cleared' ? next : settle(next);
+}
+
+/** 되돌리기용 상태 (그 안의 되돌리기는 빼서 겹겹이 쌓이지 않게) */
+function snapshot(stage: StageState): StageSnapshot {
+  const copy: Partial<StageState> = { ...stage };
+  delete copy.undo;
+  return copy as StageSnapshot;
 }
 
 function discard(stage: StageState, slot: number): StageState {
@@ -652,7 +731,7 @@ function discard(stage: StageState, slot: number): StageState {
 /** 🎒 보따리: 손의 블록 1개를 보관함에 넣는다. 이번 핸드 몫을 하나 쓴 것으로 센다 */
 function stash(stage: StageState, slot: number): StageState {
   const piece = stage.hand[slot];
-  if (!stage.stashEnabled || stage.stash || !piece) return stage;
+  if (!stage.stashEnabled || stage.stash || !piece || !canPick(stage, slot)) return stage;
   return settle({
     ...stage,
     hand: replaceAt(stage.hand, slot, null),
@@ -663,22 +742,22 @@ function stash(stage: StageState, slot: number): StageState {
 
 function reveal(stage: StageState, slot: number): StageState {
   const piece = stage.hand[slot];
-  return piece?.hidden ? { ...stage, hand: replaceAt(stage.hand, slot, shown(piece)) } : stage;
+  if (!piece?.hidden || !canPick(stage, slot)) return stage;
+  return { ...stage, hand: replaceAt(stage.hand, slot, shown(piece)) };
 }
 
 function rotate(stage: StageState, slot: HandSlot): StageState {
   const piece = pieceAt(stage, slot);
-  if (!stage.rotation || !piece) return stage;
+  if (!stage.rotation || !piece || !canPick(stage, slot)) return stage;
   return withPiece(stage, slot, rotatePiece(shown(piece)));
 }
 
-function useConsumable(
-  stage: StageState,
-  index: number,
-  slot?: HandSlot,
-  cell?: number,
-  axis?: LineAxis,
-): StageState {
+const withToast = (stage: StageState, text: string): StageState => ({
+  ...stage,
+  toast: { id: (stage.toast?.id ?? 0) + 1, text },
+});
+
+function useConsumable(stage: StageState, index: number, cell?: number, axis?: LineAxis): StageState {
   const item = stage.consumables[index];
   if (!item) return stage;
   const consumables = stage.consumables.filter((_, i) => i !== index);
@@ -686,23 +765,34 @@ function useConsumable(
     case 'scroll':
       return { ...stage, consumables, levels: levelUp(stage.levels, item.pattern) };
     case 'hammer': {
-      const target = cell === undefined ? null : stage.board[cell];
-      if (cell === undefined || !target || target.kind === 'water') return stage;
-      return settle({ ...stage, consumables, board: replaceAt(stage.board, cell, null) });
-    }
-    case 'fan': {
-      const piece = slot === undefined ? null : pieceAt(stage, slot);
-      if (slot === undefined || !piece) return stage;
-      return settle({ ...withPiece(stage, slot, rotatePiece(shown(piece))), consumables });
-    }
-    case 'broom': {
-      if (cell === undefined || !axis) return stage;
-      const line = axisLine(axis, axis === 'row' ? rowOf(cell) : colOf(cell));
-      if (!line.some((i) => isSolid(stage.board[i]))) return stage;
+      // 3×3을 부순다 (점수 없음). 부술 게 하나도 없으면 안 쓴다
+      if (cell === undefined) return stage;
+      const area = area3x3(cell).filter((i) => isSolid(stage.board[i]));
+      if (area.length === 0) return stage;
       const board = stage.board.slice();
-      for (const i of line) if (isSolid(board[i])) board[i] = null;
+      for (const i of area) board[i] = null;
       return settle({ ...stage, consumables, board });
     }
+    case 'fan':
+      // 이번 판 동안 회전 (이미 돌릴 수 있으면 쓸 필요가 없다)
+      if (stage.rotation) return stage;
+      return settle(withToast({ ...stage, consumables, rotation: true }, '🌬️ 이번 판 동안 블록을 눌러서 돌릴 수 있어요'));
+    case 'broom': {
+      // 줄을 지우고 "한 줄" 점수를 받는다
+      if (cell === undefined || !axis) return stage;
+      const index = axis === 'row' ? rowOf(cell) : colOf(cell);
+      const line = axisLine(axis, index);
+      if (!line.some((i) => isSolid(stage.board[i]))) return stage;
+      const { board, cleared } = sweepCells(stage.board, line);
+      const lines: Lines = axis === 'row' ? { rows: [index], cols: [] } : { rows: [], cols: [index] };
+      const swept = scoreCleared({ ...stage, consumables }, lines, board, cleared, { kind: 'broom' });
+      return swept.status === 'cleared' ? swept : settle(swept);
+    }
+    case 'hourglass':
+      return withToast(
+        { ...stage, consumables, rules: { ...stage.rules, hands: stage.rules.hands + 1 } },
+        '⌛ 이번 판 핸드 +1',
+      );
     case 'stamp':
     case 'ink':
       // 가방을 고치는 소모품은 장터에서만
@@ -710,8 +800,23 @@ function useConsumable(
   }
 }
 
+/** 판마다 1번 무료: 마지막에 놓은 블록을 되돌린다 (그 블록으로 생긴 점수·골드·클리어도) */
+function undo(stage: StageState): StageState {
+  const before = stage.undo;
+  if (!before || stage.undoLeft <= 0) return stage;
+  return withToast({ ...before, undo: null, undoLeft: stage.undoLeft - 1, toast: stage.toast }, '↩ 마지막에 놓은 블록을 되돌렸어요');
+}
+
 export function stageReducer(stage: StageState, action: StageAction): StageState {
   if (stage.status !== 'playing') return stage;
+  const next = reduce(stage, action);
+  // 되돌리기는 바로 앞에 놓은 블록만: 놓기 말고 다른 걸 하면 지운다
+  // (🐅 가려진 블록을 집어 보는 것도. 모양을 보고 앞 블록을 다시 놓지 못하게)
+  const keepsUndo = action.type === 'place';
+  return next === stage || keepsUndo || next.undo === null ? next : { ...next, undo: null };
+}
+
+function reduce(stage: StageState, action: StageAction): StageState {
   switch (action.type) {
     case 'place':
       return place(stage, action.slot, action.row, action.col);
@@ -724,7 +829,9 @@ export function stageReducer(stage: StageState, action: StageAction): StageState
     case 'reveal':
       return reveal(stage, action.slot);
     case 'useConsumable':
-      return useConsumable(stage, action.index, action.slot, action.cell, action.axis);
+      return useConsumable(stage, action.index, action.cell, action.axis);
+    case 'undo':
+      return undo(stage);
     case 'moveTalisman':
       return { ...stage, talismans: moveTalisman(stage.talismans, action.uid, action.dir) };
     case 'giveUp':

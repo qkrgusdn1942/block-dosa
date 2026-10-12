@@ -1,12 +1,23 @@
 import { useState } from 'react';
 import { STAGE_NAMES } from '../content/balance';
 import { STAKES } from '../content/stakes';
-import { dailySeed, formatDailyDate, type ParsedCode } from '../core/daily';
-import { formatKo } from '../core/format';
-import type { Profile } from '../core/profile';
+import { LATEST_VERSION } from '../content/changelog';
+import { TALISMAN_IDS } from '../content/talismans';
+import {
+  dailySeed,
+  formatDailyDate,
+  formatWeek,
+  weekStart,
+  weeklyRuleOf,
+  weeklySeed,
+  type ParsedCode,
+} from '../core/daily';
+import { formatScore } from '../core/format';
+import type { DailyRecord, Profile, Settings } from '../core/profile';
 import type { SavedRun } from '../save/storage';
 import { CodeSheet } from './CodeSheet';
 import { useInstall } from './install';
+import { SettingsSheet } from './SettingsSheet';
 import { ShareBox } from './ShareBox';
 import { Sheet } from './Sheet';
 
@@ -18,30 +29,52 @@ interface Props {
   onContinue: () => void;
   onNew: () => void;
   onDaily: () => void;
+  onWeekly: () => void;
   onCode: (code: ParsedCode) => void;
   onTraining: () => void;
+  onCollection: () => void;
+  onInfo: () => void;
+  onSettings: (settings: Settings) => void;
+  onImported: () => void;
 }
 
-export function TitleScreen({ profile, saved, today, onContinue, onNew, onDaily, onCode, onTraining }: Props) {
+/** 오늘의 판·주간 도전 버튼 아래 한 줄 */
+function challengeStatus(inProgress: boolean, record: DailyRecord | null, fresh: string): string {
+  if (inProgress) return '진행 중 · 눌러서 이어하기';
+  if (record?.official) {
+    const { completed, score, reached } = record.official;
+    return `공식 기록: ${completed ? `끝판 ${formatScore(score)}` : reached} · 다시 하면 연습`;
+  }
+  if (record && record.attempts > 0) return '공식 도전을 끝내지 않았어요 · 다시 하면 연습';
+  return fresh;
+}
+
+/** 도감 칸 수: 부적 + 요괴 10 + 방해 칸 5 + 블록 15 + 강화 5 */
+const COLLECTABLE = TALISMAN_IDS.length + 10 + 5 + 15 + 5;
+
+export function TitleScreen(props: Props) {
+  const { profile, saved, today, onContinue, onNew, onDaily, onWeekly, onCode, onTraining } = props;
   /** 진행 중인 런을 지우고 시작할지 묻는 중 */
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [iosHintOpen, setIosHintOpen] = useState(false);
   const install = useInstall();
   const savedRun = saved?.run;
+  const monday = weekStart(today);
+  const rule = weeklyRuleOf(monday);
   const todayRecord = profile.daily?.date === today ? profile.daily : null;
+  const weekRecord = profile.weekly?.date === monday ? profile.weekly : null;
   const dailyInProgress = savedRun?.mode === 'daily' && savedRun.seed === dailySeed(today);
+  const weeklyInProgress = savedRun?.mode === 'weekly' && savedRun.seed === weeklySeed(monday);
+  const collected = Object.values(profile.collection).reduce((sum, list) => sum + list.length, 0);
 
   /** 진행 중인 런이 있으면 한 번 묻고 시작 */
   const confirmThen = (start: () => void) => (savedRun ? setPending(() => start) : start());
 
-  const dailyStatus = dailyInProgress
-    ? '진행 중 · 눌러서 이어하기'
-    : todayRecord?.official
-      ? `공식 기록: ${todayRecord.official.completed ? `끝판 ${formatKo(todayRecord.official.score)}` : todayRecord.official.reached} · 다시 하면 연습`
-      : todayRecord && todayRecord.attempts > 0
-        ? '공식 도전을 끝내지 않았어요 · 다시 하면 연습'
-        : '고개 3 + 끝판 · 첫 도전이 공식 기록';
+  const dailyStatus = challengeStatus(dailyInProgress, todayRecord, '고개 3 + 끝판 · 첫 도전이 공식 기록');
+  const weeklyStatus = challengeStatus(weeklyInProgress, weekRecord, `${rule.emoji} ${rule.name}: ${rule.text}`);
+  const savedMode = savedRun?.mode === 'daily' ? '오늘의 판 · ' : savedRun?.mode === 'weekly' ? '주간 도전 · ' : '';
 
   return (
     <div className="screen title-screen">
@@ -56,8 +89,7 @@ export function TitleScreen({ profile, saved, today, onContinue, onNew, onDaily,
           <button className="title-button primary" onClick={onContinue}>
             이어하기
             <small>
-              {savedRun.mode === 'daily' ? '오늘의 판 · ' : ''}고개 {savedRun.ante} · {STAGE_NAMES[savedRun.stageKind]} · $
-              {savedRun.gold}
+              {savedMode}고개 {savedRun.ante} · {STAGE_NAMES[savedRun.stageKind]} · ${savedRun.gold}
             </small>
           </button>
         )}
@@ -68,6 +100,10 @@ export function TitleScreen({ profile, saved, today, onContinue, onNew, onDaily,
           오늘의 판 · {formatDailyDate(today)}
           <small>{dailyStatus}</small>
         </button>
+        <button className="title-button" onClick={() => (weeklyInProgress ? onContinue() : confirmThen(onWeekly))}>
+          주간 도전 · {formatWeek(monday)}
+          <small>{weeklyStatus}</small>
+        </button>
         <div className="title-row">
           <button className="title-button" onClick={() => setCodeOpen(true)}>
             코드로 도전
@@ -75,6 +111,19 @@ export function TitleScreen({ profile, saved, today, onContinue, onNew, onDaily,
           <button className="title-button" onClick={onTraining}>
             수련
             <small>공덕 {profile.merit}</small>
+          </button>
+        </div>
+        <div className="title-row three">
+          <button className="title-button small" onClick={props.onInfo}>
+            변경·설명
+            {profile.seenVersion !== LATEST_VERSION ? <small className="new-badge">NEW {LATEST_VERSION}</small> : <small>{LATEST_VERSION}</small>}
+          </button>
+          <button className="title-button small" onClick={props.onCollection}>
+            도감
+            <small>{Math.floor((collected / COLLECTABLE) * 100)}%</small>
+          </button>
+          <button className="title-button small" onClick={() => setSettingsOpen(true)}>
+            설정
           </button>
         </div>
         {(install.canPrompt || install.needsIosHint) && (
@@ -95,6 +144,13 @@ export function TitleScreen({ profile, saved, today, onContinue, onNew, onDaily,
         </section>
       )}
 
+      {weekRecord?.official && (
+        <section className="today-record">
+          <h2>이번 주 주간 도전 공식 기록</h2>
+          <ShareBox text={weekRecord.official.text} />
+        </section>
+      )}
+
       {profile.runs > 0 && (
         <dl className="records">
           <div>
@@ -111,7 +167,7 @@ export function TitleScreen({ profile, saved, today, onContinue, onNew, onDaily,
           </div>
           <div>
             <dt>최고 한 방</dt>
-            <dd>{formatKo(profile.bestClear)}</dd>
+            <dd>{formatScore(profile.bestClear)}</dd>
           </div>
           <div>
             <dt>대청소</dt>
@@ -148,6 +204,15 @@ export function TitleScreen({ profile, saved, today, onContinue, onNew, onDaily,
             <button onClick={() => setPending(null)}>취소</button>
           </div>
         </Sheet>
+      )}
+
+      {settingsOpen && (
+        <SettingsSheet
+          settings={profile.settings}
+          onChange={props.onSettings}
+          onImported={props.onImported}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
 
       {codeOpen && (

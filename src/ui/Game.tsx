@@ -1,9 +1,11 @@
 import { useEffect, useReducer, useState, type ReactNode } from 'react';
+import { STAMP_BLOCKS } from '../content/balance';
 import { consumableInfo } from '../content/consumables';
+import { canSell } from '../content/talismans';
 import type { LineAxis } from '../core/board';
 import { consumableSlots, runReducer, talismanSlots, type RunState } from '../core/run';
 import { removalPrice } from '../core/shop';
-import { isStuck, type HandSlot, type StageAction } from '../core/stage';
+import { canUndo, isStuck, type HandSlot, type StageAction } from '../core/stage';
 import { saveStore } from '../save/storage';
 import { ConsumableSlots } from './ConsumableSlots';
 import { HelpSheet } from './HelpSheet';
@@ -11,6 +13,8 @@ import { Hud } from './Hud';
 import { BagSheet, ConsumableSheet, PackSheet, TalismanSheet } from './ItemSheets';
 import { PlayField } from './PlayField';
 import { BossSheet, PreviewSheet, RelicSheet, RewardSheet, RunEndSheet, VictorySheet } from './RunSheets';
+import { ScoreSteps } from './ScoreLine';
+import { Sheet } from './Sheet';
 import { ShopScreen } from './ShopScreen';
 import { TalismanBar } from './TalismanBar';
 
@@ -26,22 +30,26 @@ interface Props {
   onRetry: () => void;
   onTraining: () => void;
   onTitle: () => void;
+  /** 설정 "왼손 모드": 아래 버튼 줄 좌우 반전 */
+  leftHand: boolean;
 }
 
 /** 탭 모드. 망치·부채·빗자루는 어느 소모품 칸을 쓰는지도, 빗자루는 비울 방향도 기억한다 */
 type Mode =
   | { kind: 'none' }
   | { kind: 'discard' }
-  | { kind: 'hammer' | 'fan'; index: number }
+  | { kind: 'hammer'; index: number }
   | { kind: 'broom'; index: number; axis: LineAxis };
 
 /** remove = 장터 블록 빼기, stamp·ink = 도장·먹으로 가방 블록 고르기 */
 type OpenSheet =
   | { kind: 'help' }
+  | { kind: 'calc' }
   | { kind: 'boss' }
   | { kind: 'bag' }
   | { kind: 'remove' }
-  | { kind: 'stamp' | 'ink'; index: number }
+  | { kind: 'stamp'; index: number; chosen: number[] }
+  | { kind: 'ink'; index: number }
   | { kind: 'talisman'; uid: number }
   | { kind: 'consumable'; index: number }
   | null;
@@ -51,7 +59,7 @@ const NONE: Mode = { kind: 'none' };
 /** 판 미리보기·진행 중에는 판이 가진 부적·소모품·레벨을, 그 밖에는 런 것을 보여준다 */
 const loadoutOf = (run: RunState) => (run.phase === 'preview' || run.phase === 'playing' ? run.stage : run);
 
-export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraining, onTitle }: Props) {
+export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraining, onTitle, leftHand }: Props) {
   const [run, dispatch] = useReducer(runReducer, initial);
   const [mode, setMode] = useState<Mode>(NONE);
   const [sheet, setSheet] = useState<OpenSheet>(null);
@@ -91,24 +99,21 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
     mode.kind === 'discard' ? (
       '버릴 블록을 누르세요'
     ) : mode.kind === 'hammer' ? (
-      '🔨 부술 칸을 누르세요'
-    ) : mode.kind === 'fan' ? (
-      '🌬️ 돌릴 블록을 누르세요'
+      '🔨 부술 3×3의 가운데 칸을 누르세요'
     ) : mode.kind === 'broom' ? (
       <BroomNotice axis={mode.axis} onAxis={(axis) => setMode({ ...mode, axis })} />
     ) : stuck ? (
       stage.discardsLeft > 0 ? (
         '놓을 자리가 없어요 · 버리기를 써보세요'
       ) : (
-        '놓을 자리가 없어요 · 소모품을 쓰거나 포기하세요'
+        '놓을 자리가 없어요 · 되돌리기·소모품을 쓰거나 포기하세요'
       )
     ) : null;
 
   const onSlotTap = (slot: HandSlot) => {
     if (mode.kind === 'discard') {
       if (slot !== 'stash') stageAction({ type: 'discard', slot });
-    } else if (mode.kind === 'fan') stageAction({ type: 'useConsumable', index: mode.index, slot });
-    else if (stage.rotation) stageAction({ type: 'rotate', slot });
+    } else if (stage.rotation) stageAction({ type: 'rotate', slot });
     setMode(NONE);
   };
 
@@ -121,9 +126,14 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
   const onConsumableTap = (index: number) => {
     const item = loadout.consumables[index];
     if (!item) return;
-    // 망치·부채·빗자루는 판 진행 중이면 바로 대상 고르기, 다시 누르면 취소
-    if (playing && consumableInfo(item).use === 'stage') {
-      const kind = item.kind as 'hammer' | 'fan' | 'broom';
+    // ⌛ 모래시계·🌬️ 부채는 판 진행 중이면 바로 쓴다 (이미 돌릴 수 있으면 부채는 설명만)
+    if (playing && (item.kind === 'hourglass' || (item.kind === 'fan' && !stage.rotation))) {
+      stageAction({ type: 'useConsumable', index });
+      return;
+    }
+    // 망치·빗자루는 판 진행 중이면 바로 대상 고르기, 다시 누르면 취소
+    if (playing && (item.kind === 'hammer' || item.kind === 'broom')) {
+      const kind = item.kind;
       setMode((current) => {
         if (current.kind === kind && 'index' in current && current.index === index) return NONE;
         return kind === 'broom' ? { kind, index, axis: 'row' } : { kind, index };
@@ -135,7 +145,9 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
 
   const sheets = (
     <>
-      {phase === 'preview' && <PreviewSheet run={run} onStart={() => dispatch({ type: 'begin' })} />}
+      {phase === 'preview' && (
+        <PreviewSheet run={run} onStart={() => dispatch({ type: 'begin' })} onSkip={() => dispatch({ type: 'skip' })} />
+      )}
       {phase === 'reward' && run.reward && <RewardSheet lines={run.reward} onCollect={() => dispatch({ type: 'collect' })} />}
       {phase === 'victory' && (
         <VictorySheet onEndless={() => dispatch({ type: 'endless' })} onFinish={() => dispatch({ type: 'finish' })} />
@@ -173,6 +185,17 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
     if (!sheet) return null;
     const close = () => setSheet(null);
     switch (sheet.kind) {
+      case 'calc':
+        return stage.lastClear ? (
+          <Sheet title="점수 계산" sub="마지막 클리어를 계산한 순서예요. 부적은 왼쪽부터 끼어들어요." onClose={close}>
+            <ScoreSteps event={stage.lastClear} />
+            <div className="sheet-actions">
+              <button className="primary" onClick={close}>
+                닫기
+              </button>
+            </div>
+          </Sheet>
+        ) : null;
       case 'help':
         return <HelpSheet seed={run.seed} levels={loadout.levels} onClose={close} onTitle={onTitle} />;
       case 'boss':
@@ -194,20 +217,47 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
             onClose={close}
           />
         );
-      case 'stamp':
+      case 'stamp': {
+        const item = run.consumables[sheet.index];
+        if (!item) return null;
+        const info = consumableInfo(item);
+        const { index, chosen } = sheet;
+        // 가방이 STAMP_BLOCKS개보다 적을 일은 없지만, 고를 수 있는 만큼만
+        const need = Math.min(STAMP_BLOCKS, run.bag.length);
+        return (
+          <BagSheet
+            bag={run.bag}
+            pick={{
+              title: `${info.emoji} ${info.name} (${chosen.length + 1}/${need})`,
+              sub: `강화할 블록을 ${need}개 고르세요. ${info.text}`,
+              exclude: chosen,
+              onPick: (bagId) => {
+                const picked = [...chosen, bagId];
+                if (picked.length < need) {
+                  setSheet({ kind: 'stamp', index, chosen: picked });
+                  return;
+                }
+                dispatch({ type: 'stamp', index, bagIds: picked });
+                close();
+              },
+            }}
+            onClose={close}
+          />
+        );
+      }
       case 'ink': {
         const item = run.consumables[sheet.index];
         if (!item) return null;
         const info = consumableInfo(item);
-        const { kind, index } = sheet;
+        const { index } = sheet;
         return (
           <BagSheet
             bag={run.bag}
             pick={{
               title: `${info.emoji} ${info.name}`,
-              sub: kind === 'stamp' ? `강화할 블록을 고르세요. ${info.text}` : '똑같이 하나 더 만들 블록을 고르세요 (강화 포함)',
+              sub: '똑같이 하나 더 만들 블록을 고르세요 (강화 포함)',
               onPick: (bagId) => {
-                dispatch({ type: kind, index, bagId });
+                dispatch({ type: 'ink', index, bagId });
                 close();
               },
             }}
@@ -225,7 +275,7 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
             index={index}
             count={loadout.talismans.length}
             sealed={talisman.uid === sealedUid}
-            canSell={phase === 'shop' || phase === 'relic'}
+            canSell={(phase === 'shop' || phase === 'relic') && canSell(talisman.id)}
             onMove={(dir) => dispatch({ type: 'moveTalisman', uid: talisman.uid, dir })}
             onSell={() => {
               dispatch({ type: 'sell', uid: talisman.uid });
@@ -248,7 +298,7 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
                 close();
               }
             : bagTool
-              ? () => setSheet({ kind: bagTool, index })
+              ? () => setSheet(bagTool === 'stamp' ? { kind: 'stamp', index, chosen: [] } : { kind: 'ink', index })
               : null;
         return (
           <ConsumableSheet
@@ -273,6 +323,7 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
           onConsumableTap={onConsumableTap}
           onBag={() => setSheet({ kind: 'bag' })}
           onRemoveBlock={() => setSheet({ kind: 'remove' })}
+          leftHand={leftHand}
         />
         {sheets}
       </>
@@ -284,8 +335,13 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
 
   return (
     <>
-      <div className="game">
-        <Hud run={run} onBossTap={() => setSheet({ kind: 'boss' })} />
+      <div className={leftHand ? 'game left-hand' : 'game'}>
+        <Hud
+          run={run}
+          onBossTap={() => setSheet({ kind: 'boss' })}
+          onUndo={playing ? () => stageAction({ type: 'undo' }) : undefined}
+          canUndo={playing && canUndo(stage)}
+        />
         <TalismanBar
           talismans={loadout.talismans}
           slots={talismanSlots(run)}
@@ -303,6 +359,7 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
           onStash={(slot) => stageAction({ type: 'stash', slot })}
           onReveal={(slot) => stageAction({ type: 'reveal', slot })}
           onCellTap={onCellTap}
+          onScoreDetails={() => setSheet({ kind: 'calc' })}
         />
         <div className="controls">
           {giveUp ? (

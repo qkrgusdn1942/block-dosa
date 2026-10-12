@@ -10,12 +10,19 @@ interface Props {
   disabled?: boolean;
   /** 전설 부적처럼 눈에 띄게 */
   highlight?: boolean;
+  /** 저주받은 부적 */
+  cursed?: boolean;
   onAction: () => void;
 }
 
 /** 장터 진열, 요괴 유품에 쓰는 카드 */
-export function OfferCard({ emoji, name, tag, text, action, disabled, highlight, onAction }: Props) {
-  const classes = ['offer', ...(disabled ? ['disabled'] : []), ...(highlight ? ['highlight'] : [])];
+export function OfferCard({ emoji, name, tag, text, action, disabled, highlight, cursed, onAction }: Props) {
+  const classes = [
+    'offer',
+    ...(disabled ? ['disabled'] : []),
+    ...(highlight ? ['highlight'] : []),
+    ...(cursed ? ['cursed'] : []),
+  ];
   return (
     <div className={classes.join(' ')}>
       <div className="offer-emoji">{emoji}</div>

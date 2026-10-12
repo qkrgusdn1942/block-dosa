@@ -17,8 +17,10 @@ export interface Piece {
   /** 👹 도깨비가 모양을 바꾼 블록 */
   transformed?: boolean;
   enh?: Enhancement;
-  /** 🐅 장산범이 가린 블록. 집어 들면 드러난다 */
+  /** 🐅 장산범이 가린 블록. 핸드의 마지막 블록으로만 집을 수 있고, 집으면 드러난다 (stage.ts canPick) */
   hidden?: boolean;
+  /** 🧊 언 블록: 놓은 칸이 언 칸이 된다 */
+  frozen?: boolean;
 }
 
 export function parsePattern(pattern: readonly string[]): Cell[] {

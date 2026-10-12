@@ -1,10 +1,18 @@
 import { STAGE_NAMES } from '../content/balance';
 import { BOSSES } from '../content/bosses';
 import { STAKES } from '../content/stakes';
-import { formatKo } from '../core/format';
+import { formatScore } from '../core/format';
 import type { RunState } from '../core/run';
 
-export function Hud({ run, onBossTap }: { run: RunState; onBossTap: () => void }) {
+interface Props {
+  run: RunState;
+  onBossTap: () => void;
+  /** 판 진행 중이면 되돌리기 버튼 (판마다 1번 무료) */
+  onUndo?: () => void;
+  canUndo: boolean;
+}
+
+export function Hud({ run, onBossTap, onUndo, canUndo }: Props) {
   const { stage } = run;
   const { score, rules, handNumber, discardsLeft, streak, clearedThisHand, status, scoreAttack } = stage;
   const boss = stage.boss ? BOSSES[stage.boss] : null;
@@ -18,6 +26,7 @@ export function Hud({ run, onBossTap }: { run: RunState; onBossTap: () => void }
         <span className="stage-name">
           {run.mode === 'daily' && <span className="mode-tag">오늘의 판</span>}
           {run.mode === 'seed' && <span className="mode-tag">도전장</span>}
+          {run.mode === 'weekly' && <span className="mode-tag">주간</span>}
           {run.endless && <span className="mode-tag">끝없는</span>}
           {run.stake > 1 && <span className="mode-tag stake">{STAKES[run.stake - 1].name}</span>}
           {scoreAttack ? '🏁 끝판' : `고개 ${run.ante} · ${STAGE_NAMES[stage.kind]}`}
@@ -35,11 +44,11 @@ export function Hud({ run, onBossTap }: { run: RunState; onBossTap: () => void }
       <div className="score-row">
         <div className="score">
           <span className="label">점수</span>
-          <strong>{formatKo(score)}</strong>
+          <strong>{formatScore(score)}</strong>
         </div>
         <div className="target">
           <span className="label">{scoreAttack ? '끝판' : '목표'}</span>
-          <strong>{scoreAttack ? '최대한!' : formatKo(rules.target)}</strong>
+          <strong>{scoreAttack ? '최대한!' : formatScore(rules.target)}</strong>
         </div>
       </div>
       <div className="progress" aria-hidden="true">
@@ -56,6 +65,11 @@ export function Hud({ run, onBossTap }: { run: RunState; onBossTap: () => void }
           연속 <b>{streak}</b>
           {streakAtRisk && <small>이번 핸드에 지워야 유지</small>}
         </span>
+        {onUndo && (
+          <button className="undo-chip" disabled={!canUndo} onClick={onUndo} aria-label="마지막 블록 되돌리기">
+            ↩ 되돌리기 {stage.undoLeft}
+          </button>
+        )}
       </div>
     </header>
   );

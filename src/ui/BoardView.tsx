@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { useRef, type RefObject } from 'react';
 import { BOARD_SIZE } from '../content/balance';
 import { SHAPES, type ShapeKind } from '../content/blocks';
 import { ENHANCEMENTS } from '../content/enhancements';
@@ -28,18 +28,43 @@ interface Props {
   gridRef: RefObject<HTMLDivElement | null>;
 }
 
-const BONUS_EMOJI: Record<BonusKind, string> = { gem: '💎', star: '⭐' };
+const BONUS_EMOJI: Record<BonusKind, string> = { gem: '💎', star: '⭐', scroll: '📜', curse: '🕸️' };
 
 function cellClasses(cell: Filled | null): string[] {
   if (!cell) return [];
   switch (cell.kind) {
     case 'block':
-      return ['filled', `k-${SHAPES[cell.shape].kind}`, ...(cell.enh ? ['enh', `enh-${cell.enh}`] : [])];
+      return [
+        'filled',
+        `k-${SHAPES[cell.shape].kind}`,
+        ...(cell.enh ? ['enh', `enh-${cell.enh}`] : []),
+        ...(cell.frozen ? ['frozen'] : []),
+      ];
     case 'rock':
       return ['rock', ...(cell.cracked ? ['cracked'] : []), ...(cell.shadow ? ['shadow'] : [])];
     case 'water':
       return ['water'];
+    case 'lock':
+      return ['hazard', 'lock'];
+    case 'moss':
+      return ['hazard', 'moss'];
+    case 'bomb':
+      return ['hazard', 'bomb', ...(cell.fuse <= 1 ? ['ticking'] : [])];
   }
+}
+
+/** 방해 칸 위에 그리는 것 (시한폭탄은 남은 핸드 수도) */
+function hazardMark(cell: Filled | null) {
+  if (cell?.kind === 'lock') return <span className="hazard-mark">🔒</span>;
+  if (cell?.kind === 'moss') return <span className="hazard-mark">🌿</span>;
+  if (cell?.kind === 'bomb') {
+    return (
+      <span className="hazard-mark">
+        💣<b className="fuse">{cell.fuse}</b>
+      </span>
+    );
+  }
+  return null;
 }
 
 const gridPosition = (index: number) => ({
@@ -48,7 +73,11 @@ const gridPosition = (index: number) => ({
 });
 
 export function BoardView({ board, bonus, preview, lastClear, shiftRow, onCellTap, canTarget, gridRef }: Props) {
-  const removed = lastClear?.cleared.filter((c) => c.outcome === 'removed') ?? [];
+  // ⌛ 되돌리면 예전 클리어가 다시 마지막이 되는데, 그 연출은 다시 틀지 않는다
+  const newest = useRef(0);
+  const fresh = lastClear !== null && lastClear.id >= newest.current;
+  if (lastClear && lastClear.id > newest.current) newest.current = lastClear.id;
+  const removed = fresh ? lastClear.cleared.filter((c) => c.outcome === 'removed') : [];
 
   return (
     <div className="board">
@@ -70,6 +99,7 @@ export function BoardView({ board, bonus, preview, lastClear, shiftRow, onCellTa
               onPointerDown={targetable ? () => onCellTap(index) : undefined}
             >
               {mark && <span className={cell ? 'bonus covered' : 'bonus'}>{BONUS_EMOJI[mark]}</span>}
+              {hazardMark(cell)}
             </div>
           );
         })}
@@ -82,13 +112,13 @@ export function BoardView({ board, bonus, preview, lastClear, shiftRow, onCellTa
           </div>
         )}
 
-        {lastClear && (
+        {fresh && (
           // 지워진 칸이 터지며 사라지는 연출. 클리어마다 key가 바뀌어 다시 재생된다
           <div className="overlay" key={lastClear.id} aria-hidden="true">
             {removed.map(({ index, cell }, order) => (
               <div
                 key={index}
-                className={cell.kind === 'block' ? `burst k-${SHAPES[cell.shape].kind}` : 'burst rock'}
+                className={cell.kind === 'block' ? `burst k-${SHAPES[cell.shape].kind}` : `burst ${cell.kind}`}
                 style={{ ...gridPosition(index), animationDelay: `${order * 8}ms` }}
               />
             ))}

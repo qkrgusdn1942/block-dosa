@@ -47,7 +47,11 @@ export type TalismanId =
   // 전설
   | 'pearl'
   | 'crow'
-  | 'feather';
+  | 'feather'
+  // 저주 (팔 수 없음)
+  | 'demonTile'
+  | 'hahoe'
+  | 'goldJar';
 
 export interface TalismanInstance {
   uid: number;
@@ -81,6 +85,8 @@ export interface TalismanPassive {
   doubleTimes?: boolean;
   /** 판에 실패해도 한 번 되살아남 */
   revive?: boolean;
+  /** 이자를 못 받음 */
+  noInterest?: boolean;
 }
 
 export interface TalismanDef {
@@ -132,6 +138,9 @@ function swingClub(t: Tally, rng: Rng): TalismanScore | null {
   if (roll < 0.35) return { ...timesMult(t, 4), note: '뚝딱! ×4' };
   return null;
 }
+
+/** 저주받은 부적은 고개 3을 본 뒤부터 장터에 나온다 */
+const CURSED_UNLOCK: Unlock = { text: '고개 3 도달', check: (r) => r.bestAnte >= 3 };
 
 const defs: TalismanDef[] = [
   // ── 칩
@@ -424,7 +433,41 @@ const defs: TalismanDef[] = [
     text: '판에 실패해도 한 번 되살아나 그 판을 넘김 (그 뒤 깃털은 타서 사라짐)',
     passive: { revive: true },
   },
+  // ── 저주 (강하지만 대가가 있고, 팔 수 없다)
+  {
+    id: 'demonTile',
+    name: '귀면와',
+    emoji: '👺',
+    rarity: 'cursed',
+    text: '배수 ×4. 대신 판마다 핸드 −1',
+    onScore: (_ctx, t) => timesMult(t, 4),
+    passive: { hands: -1 },
+    unlock: CURSED_UNLOCK,
+  },
+  {
+    id: 'hahoe',
+    name: '하회탈',
+    emoji: '🎭',
+    rarity: 'cursed',
+    text: '클리어마다 칩 +80. 대신 판마다 버리기 −2',
+    onScore: (_ctx, t) => plusChips(t, 80),
+    passive: { discards: -2 },
+    unlock: CURSED_UNLOCK,
+  },
+  {
+    id: 'goldJar',
+    name: '금단지',
+    emoji: '⚱️',
+    rarity: 'cursed',
+    text: '판을 클리어할 때 +$8. 대신 이자를 못 받음',
+    onStageClear: () => ({ gold: 8 }),
+    passive: { noInterest: true },
+    unlock: CURSED_UNLOCK,
+  },
 ];
 
 export const TALISMANS = Object.fromEntries(defs.map((d) => [d.id, d])) as Record<TalismanId, TalismanDef>;
 export const TALISMAN_IDS = defs.map((d) => d.id);
+
+/** 저주받은 부적은 팔 수 없다 */
+export const canSell = (id: TalismanId) => TALISMANS[id].rarity !== 'cursed';

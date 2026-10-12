@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatKo } from '../src/core/format';
+import { formatExp, formatKo, formatScore, setNumberStyle } from '../src/core/format';
 
 describe('한국식 숫자 표기', () => {
   it.each([
@@ -22,5 +22,24 @@ describe('한국식 숫자 표기', () => {
 
   it('무량대수보다 큰 수는 지수 표기', () => {
     expect(formatKo(1.2e75)).toBe('1.2e75');
+  });
+});
+
+describe('지수 표기 (설정)', () => {
+  it.each([
+    [9_999, '9,999'],
+    [12_345, '1.23e4'],
+    [100_000, '1e5'],
+    [987_654_321, '9.87e8'],
+    [1.5e12, '1.5e12'],
+  ])('%d → %s', (value, text) => {
+    expect(formatExp(value)).toBe(text);
+  });
+
+  it('설정에 따라 화면 숫자가 바뀐다', () => {
+    setNumberStyle('exponent');
+    expect(formatScore(12_345)).toBe('1.23e4');
+    setNumberStyle('korean');
+    expect(formatScore(12_345)).toBe('1.23만');
   });
 });

@@ -8,6 +8,7 @@ import {
 } from '../content/balance';
 import type { ShapeKind } from '../content/blocks';
 import { CRYSTAL_CHIPS, FIRE_MULT, GLASS_MULT } from '../content/enhancements';
+import { CURSE_MULT } from '../content/obstacles';
 
 /** 동시에 지운 가로·세로 줄 수로 족보를 정한다 */
 export function classifyPattern(rows: number, cols: number): PatternId | null {
@@ -25,7 +26,7 @@ export interface EnhanceTally {
   fire: number;
   /** 행운이 터져서 붙는 배수 */
   lucky: number;
-  /** 유리 블록 수 (블록당 ×1.5) */
+  /** 유리 블록 수 (블록당 ×GLASS_MULT) */
   glass: number;
 }
 
@@ -40,6 +41,8 @@ export interface ClearContext {
   perfect: boolean;
   /** 지운 칸 중 ⭐ 별 칸 수 */
   stars: number;
+  /** 지운 칸 중 🕸️ 저주 칸 수 */
+  curses?: number;
   /** 줄을 완성한 블록의 분류. 이무기가 줄을 밀어서 지워졌으면 null */
   pieceKind: ShapeKind | null;
   /** 지우기 직전 / 지운 뒤 판에 채워진 칸 수 (블록 + 바위) */
@@ -65,7 +68,17 @@ export interface Tally {
   mult: number;
 }
 
-export type StepKind = 'pattern' | 'cells' | 'enhance' | 'streak' | 'modifier' | 'star' | 'glass' | 'perfect' | 'void';
+export type StepKind =
+  | 'pattern'
+  | 'cells'
+  | 'enhance'
+  | 'streak'
+  | 'modifier'
+  | 'star'
+  | 'glass'
+  | 'curse'
+  | 'perfect'
+  | 'void';
 
 export interface ScoreStep extends Tally {
   kind: StepKind;
@@ -136,6 +149,9 @@ export function scoreClear(ctx: ClearContext, modifiers: readonly ScoreModifier[
   }
   for (let i = 0; i < (enhance?.glass ?? 0); i++) {
     apply({ kind: 'glass', label: '유리', chips: tally.chips, mult: tally.mult * GLASS_MULT });
+  }
+  for (let i = 0; i < (ctx.curses ?? 0); i++) {
+    apply({ kind: 'curse', label: '저주 칸', chips: tally.chips, mult: tally.mult * CURSE_MULT });
   }
   if (ctx.perfect) {
     apply({ kind: 'perfect', label: '대청소', chips: tally.chips, mult: tally.mult * PERFECT_CLEAR_MULT });

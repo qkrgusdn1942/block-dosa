@@ -1,26 +1,46 @@
 import { RARITY_NAMES, STAGE_NAMES } from '../content/balance';
 import { BOSSES, type BossId } from '../content/bosses';
 import { consumableInfo } from '../content/consumables';
+import { OBSTACLES } from '../content/obstacles';
+import { SKIP_REWARDS } from '../content/skips';
 import { STAKES } from '../content/stakes';
 import { TALISMANS } from '../content/talismans';
-import { formatKo } from '../core/format';
+import { WEEKLY_RULE_BY_ID } from '../content/weekly';
+import { formatScore } from '../core/format';
 import { meritTotal, runMerit } from '../core/profile';
-import { consumableSlotsFull, talismanSlots, talismanSlotsFull, type RewardLine, type RunState } from '../core/run';
+import {
+  canSkip,
+  consumableSlotsFull,
+  skipRewardOf,
+  talismanSlots,
+  talismanSlotsFull,
+  type RewardLine,
+  type RunState,
+} from '../core/run';
 import { shareText } from '../core/share';
 import { OfferCard } from './OfferCard';
 import { ShareBox } from './ShareBox';
 import { Sheet } from './Sheet';
 import { TalismanBar } from './TalismanBar';
 
-/** 판 미리보기: 목표, 요괴 규칙, 바위·보너스 칸 */
-export function PreviewSheet({ run, onStart }: { run: RunState; onStart: () => void }) {
+interface PreviewProps {
+  run: RunState;
+  onStart: () => void;
+  /** 판 1·판 2는 건너뛰고 보상을 받을 수 있다 */
+  onSkip: () => void;
+}
+
+/** 판 미리보기: 목표, 요괴 규칙, 방해 칸, 바위·보너스 칸, 건너뛰기 보상 */
+export function PreviewSheet({ run, onStart, onSkip }: PreviewProps) {
   const { stage } = run;
   const boss = stage.boss ? BOSSES[stage.boss] : null;
+  const obstacle = stage.obstacle ? OBSTACLES[stage.obstacle] : null;
   const rocks = stage.board.filter((cell) => cell?.kind === 'rock').length;
   const marks = Object.values(stage.bonus);
-  const gems = marks.filter((m) => m === 'gem').length;
-  const stars = marks.length - gems;
+  const count = (kind: string) => marks.filter((m) => m === kind).length;
   const sealed = stage.talismans.find((t) => t.uid === stage.sealedUid);
+  const rule = run.rule ? WEEKLY_RULE_BY_ID[run.rule] : null;
+  const skip = canSkip(run) ? SKIP_REWARDS[skipRewardOf(run)] : null;
 
   return (
     <Sheet
@@ -28,7 +48,7 @@ export function PreviewSheet({ run, onStart }: { run: RunState; onStart: () => v
       sub={
         stage.scoreAttack
           ? '목표 없이 핸드를 다 쓸 때까지 최대한 점수를 내요. 이 점수로 친구들과 겨뤄요.'
-          : `목표 ${formatKo(stage.rules.target)}점`
+          : `목표 ${formatScore(stage.rules.target)}점`
       }
     >
       {boss && (
@@ -40,14 +60,29 @@ export function PreviewSheet({ run, onStart }: { run: RunState; onStart: () => v
           </div>
         </div>
       )}
+      {obstacle && (
+        <div className="boss-card hazard-card">
+          <span className="boss-emoji">{obstacle.emoji}</span>
+          <div>
+            <b>방해 칸: {obstacle.name}</b>
+            <p>{obstacle.rule}</p>
+          </div>
+        </div>
+      )}
       <ul className="rules">
         <li>
           핸드 {stage.rules.hands}번, 버리기 {stage.rules.discards}번
         </li>
         {rocks > 0 && <li>🪨 바위 {rocks}개: 줄에 포함되지만 두 번 지워야 부서져요</li>}
-        {gems > 0 && <li>💎 보석 칸 {gems}개: 덮어서 지우면 +$3</li>}
-        {stars > 0 && <li>⭐ 별 칸 {stars}개: 덮어서 지우면 그 점수 ×2</li>}
+        {count('gem') > 0 && <li>💎 보석 칸 {count('gem')}개: 덮어서 지우면 +$3</li>}
+        {count('star') > 0 && <li>⭐ 별 칸 {count('star')}개: 덮어서 지우면 그 점수 ×2</li>}
+        {count('scroll') > 0 && <li>📜 두루마리 칸 {count('scroll')}개: 덮어서 지우면 비전서 (소모품 칸이 비어 있을 때)</li>}
         {sealed && <li>🔒 봉인된 부적: {TALISMANS[sealed.id].name}</li>}
+        {rule && (
+          <li>
+            {rule.emoji} 이번 주 규칙: {rule.text}
+          </li>
+        )}
         {run.stake > 1 && (
           <li>
             난이도 {run.stake} {STAKES[run.stake - 1].name}
@@ -58,6 +93,12 @@ export function PreviewSheet({ run, onStart }: { run: RunState; onStart: () => v
         <button className="primary" onClick={onStart}>
           시작
         </button>
+        {skip && (
+          <button className="with-sub" onClick={onSkip}>
+            건너뛰고 {skip.emoji} {skip.name} 받기
+            <small className="button-sub">{skip.text} · 이 판의 보상과 다음 장터는 없음</small>
+          </button>
+        )}
       </div>
     </Sheet>
   );
@@ -173,11 +214,12 @@ function endHeadline(run: RunState): { title: string; sub: string } {
       ? `${where}에서 막혔어요. 놓을 자리가 없었어요.`
       : `${where}에서 핸드를 다 썼는데 목표에 못 미쳤어요.`;
   if (run.endless) return { title: `♾️ 끝없는 모드 · 고개 ${run.ante}`, sub: `엔딩 뒤 ${reason}` };
-  if (daily) {
+  if (daily || run.mode === 'weekly') {
+    const name = daily ? '오늘의 판' : '주간 도전';
     const badge = run.official ? '공식 기록' : '연습';
     return ending
-      ? { title: '오늘의 판 완주!', sub: `끝판 ${formatKo(run.stage.score)}점 · ${badge}` }
-      : { title: '오늘의 판 종료', sub: `${reason} · ${badge}` };
+      ? { title: `${name} 완주!`, sub: `끝판 ${formatScore(run.stage.score)}점 · ${badge}` }
+      : { title: `${name} 종료`, sub: `${reason} · ${badge}` };
   }
   return ending ? { title: '엔딩: 이무기를 봉인했어요', sub: '여덟 고개를 모두 넘었어요.' } : { title: '런 종료', sub: reason };
 }
@@ -189,7 +231,7 @@ export function RunEndSheet({ run, merit, onNew, onRetry, onTraining, onTitle }:
 
   return (
     <Sheet title={title} sub={sub} delayed>
-      <ShareBox text={shareText(run)} />
+      <ShareBox text={shareText(run)} image />
       <dl className="stats">
         <div>
           <dt>깬 판</dt>
@@ -201,11 +243,11 @@ export function RunEndSheet({ run, merit, onNew, onRetry, onTraining, onTitle }:
         </div>
         <div>
           <dt>최고 한 방</dt>
-          <dd>{formatKo(stats.bestClear)}</dd>
+          <dd>{formatScore(stats.bestClear)}</dd>
         </div>
         <div>
           <dt>총점</dt>
-          <dd>{formatKo(stats.totalScore)}</dd>
+          <dd>{formatScore(stats.totalScore)}</dd>
         </div>
         <div>
           <dt>지운 줄</dt>
@@ -236,7 +278,9 @@ export function RunEndSheet({ run, merit, onNew, onRetry, onTraining, onTitle }:
           새 런
         </button>
         <button onClick={onTraining}>수련하러 가기</button>
-        <button onClick={onRetry}>{run.mode === 'daily' ? '오늘의 판 다시 (연습)' : '같은 시드로 다시'}</button>
+        <button onClick={onRetry}>
+          {run.mode === 'daily' ? '오늘의 판 다시 (연습)' : run.mode === 'weekly' ? '주간 도전 다시 (연습)' : '같은 시드로 다시'}
+        </button>
         <button onClick={onTitle}>처음 화면</button>
       </div>
     </Sheet>

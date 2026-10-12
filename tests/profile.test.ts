@@ -8,10 +8,12 @@ import {
   newProfile,
   nextUpgradeCost,
   perksOf,
+  mergeSeen,
   recordsOf,
   runMerit,
   settleRun,
   startDaily,
+  startWeekly,
   type Profile,
 } from '../src/core/profile';
 import { createRun, type RunState } from '../src/core/run';
@@ -165,5 +167,41 @@ describe('v1.0 기록과 해금', () => {
 
   it('예전 프로필에는 없던 기록은 0부터', () => {
     expect(newProfile()).toMatchObject({ totalPerfects: 0, stakeCleared: 0, lastSetup: null });
+  });
+});
+
+describe('v1.1 기록', () => {
+  it('주간 도전: 이번 주 첫 도전만 공식, 지난주 코드는 연습', () => {
+    const first = startWeekly(newProfile(), '20261012', '20261012');
+    expect(first.official).toBe(true);
+    expect(first.profile.weekly).toEqual({ date: '20261012', attempts: 1, official: null });
+    expect(startWeekly(first.profile, '20261012', '20261012').official).toBe(false);
+    const past = startWeekly(first.profile, '20261005', '20261012');
+    expect(past).toEqual({ profile: first.profile, official: false });
+  });
+
+  it('주간 도전 공식 기록이 남고, 오늘의 판 기록은 그대로', () => {
+    const started = startWeekly(newProfile(), '20261012', '20261012').profile;
+    const run = createRun('W20261012', { mode: 'weekly', official: true });
+    const settled = settleRun(started, { ...run, phase: 'over' }, 'w1');
+    expect(settled.weekly?.official?.text).toContain('주간 도전');
+    expect(settled.daily).toBeNull();
+  });
+
+  it('런이 끝나면 만난 것들이 도감에 더해진다', () => {
+    const run = createRun('SEEN01');
+    const seen = { ...run.seen, bosses: ['gumiho' as const], talismans: ['lamp' as const] };
+    const settled = settleRun(
+      { ...newProfile(), collection: { ...newProfile().collection, bosses: ['dokkaebi'] } },
+      { ...run, phase: 'over', seen },
+      's1',
+    );
+    expect(settled.collection.bosses).toEqual(['dokkaebi', 'gumiho']);
+    expect(settled.collection.talismans).toEqual(['lamp']);
+    expect(mergeSeen(settled.collection, seen)).toEqual(settled.collection);
+  });
+
+  it('설정 기본값: 한국식 숫자, 오른손', () => {
+    expect(newProfile().settings).toEqual({ numberStyle: 'korean', leftHand: false });
   });
 });

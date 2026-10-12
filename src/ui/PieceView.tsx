@@ -16,7 +16,7 @@ export function PieceView({ piece, cell }: { piece: Piece; cell: number | string
     );
   }
   const kind = SHAPES[piece.shape].kind;
-  const enh = piece.enh ? ` enh enh-${piece.enh}` : '';
+  const enh = (piece.enh ? ` enh enh-${piece.enh}` : '') + (piece.frozen ? ' frozen' : '');
   return (
     <div
       className="piece"

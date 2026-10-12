@@ -4,12 +4,25 @@ import { BAG_BY_ID, type BagType } from '../content/bags';
 import { BOSSES, type BossId } from '../content/bosses';
 import { MAX_STAKE } from '../content/stakes';
 import { NO_PERKS } from '../content/upgrades';
-import { dailyDateOf, dailySeed, kstDate, type ParsedCode } from '../core/daily';
-import { buyUpgrade, perksOf, recordsOf, settleRun, startDaily, type Profile, type RunSetup } from '../core/profile';
+import { dailyDateOf, dailySeed, kstDate, weekStart, weeklyDateOf, weeklySeed, type ParsedCode } from '../core/daily';
+import { setNumberStyle } from '../core/format';
+import {
+  buyUpgrade,
+  perksOf,
+  recordsOf,
+  settleRun,
+  startDaily,
+  startWeekly,
+  type Profile,
+  type RunSetup,
+} from '../core/profile';
 import { randomSeedCode } from '../core/rng';
 import { createRun, type RunMode, type RunStart, type RunState } from '../core/run';
 import { saveStore } from '../save/storage';
+import { LATEST_VERSION } from '../content/changelog';
+import { CollectionScreen } from './CollectionScreen';
 import { Game } from './Game';
+import { InfoScreen } from './InfoScreen';
 import { RunSetupScreen } from './RunSetupScreen';
 import { TitleScreen } from './TitleScreen';
 import { TrainingScreen } from './TrainingScreen';
@@ -44,13 +57,18 @@ type Screen =
   | { kind: 'title' }
   | { kind: 'training' }
   | { kind: 'setup' }
+  | { kind: 'collection' }
+  | { kind: 'info' }
   | { kind: 'run'; id: string; initial: RunState };
 
 const makeRunId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
 const DEFAULT_SETUP: RunSetup = { bagType: 'basic', stake: 1 };
 
-/** 새 런은 수련·가방·난이도를 쓰고, 오늘의 판·코드 도전은 공평하게 수련 없이 기본 가방·1단계로 */
+/**
+ * 새 런은 수련·가방·난이도를 쓴다. 코드 도전은 수련 없이 코드에 적힌 가방·난이도로,
+ * 오늘의 판·주간 도전은 수련 없이 기본 가방·1단계로 (주간 도전은 그 주의 규칙이 붙는다)
+ */
 function runScreen(profile: Profile, mode: RunMode, seed: string, official = false, setup = DEFAULT_SETUP): Screen {
   const normal = mode === 'normal';
   const initial = createRun(seed, {
@@ -59,7 +77,7 @@ function runScreen(profile: Profile, mode: RunMode, seed: string, official = fal
     records: recordsOf(profile),
     mode,
     official,
-    ...(normal ? setup : DEFAULT_SETUP),
+    ...(normal || mode === 'seed' ? setup : DEFAULT_SETUP),
   });
   return { kind: 'run', id: makeRunId(), initial };
 }
@@ -71,6 +89,8 @@ export function App() {
     return dev ? runScreen(profile, 'normal', randomSeedCode(), false, dev.setup) : { kind: 'title' };
   });
   const [saved, setSaved] = useState(() => saveStore.loadRun());
+  // 설정한 숫자 표기는 이번에 그리는 화면부터 적용된다
+  setNumberStyle(profile.settings.numberStyle);
 
   const updateProfile = (next: Profile) => {
     if (next === profile) return;
@@ -99,8 +119,25 @@ export function App() {
     setScreen(runScreen(started.profile, 'daily', dailySeed(date), started.official));
   };
 
-  const launchCode = (code: ParsedCode) =>
-    code.mode === 'daily' ? launchDaily(code.date) : launch('seed', code.seed);
+  /** 이번 주 첫 도전이면 공식 기록. 지난주(코드)는 연습 */
+  const launchWeekly = (monday: string) => {
+    const started = startWeekly(profile, monday, weekStart(kstDate()));
+    updateProfile(started.profile);
+    saveStore.clearRun();
+    setScreen(runScreen(started.profile, 'weekly', weeklySeed(monday), started.official));
+  };
+
+  const launchCode = (code: ParsedCode) => {
+    if (code.mode === 'daily') launchDaily(code.date);
+    else if (code.mode === 'weekly') launchWeekly(code.date);
+    else launch('seed', code.seed, false, code.setup);
+  };
+
+  /** 세이브 코드를 넣은 뒤 프로필·런을 다시 읽는다 */
+  const reload = () => {
+    setProfile(saveStore.loadProfile());
+    setSaved(saveStore.loadRun());
+  };
 
   const toTitle = () => {
     setSaved(saveStore.loadRun());
@@ -118,10 +155,23 @@ export function App() {
             onContinue={() => saved && setScreen({ kind: 'run', id: saved.id, initial: saved.run })}
             onNew={() => setScreen({ kind: 'setup' })}
             onDaily={() => launchDaily(kstDate())}
+            onWeekly={() => launchWeekly(weekStart(kstDate()))}
             onCode={launchCode}
             onTraining={() => setScreen({ kind: 'training' })}
+            onCollection={() => setScreen({ kind: 'collection' })}
+            onInfo={() => {
+              // 열어 보면 새 버전 표시(NEW)를 끈다
+              if (profile.seenVersion !== LATEST_VERSION) updateProfile({ ...profile, seenVersion: LATEST_VERSION });
+              setScreen({ kind: 'info' });
+            }}
+            onSettings={(settings) => updateProfile({ ...profile, settings })}
+            onImported={reload}
           />
         );
+      case 'collection':
+        return <CollectionScreen collection={profile.collection} onBack={toTitle} />;
+      case 'info':
+        return <InfoScreen onBack={toTitle} />;
       case 'training':
         return (
           <TrainingScreen profile={profile} onBuy={(id) => updateProfile(buyUpgrade(profile, id))} onBack={toTitle} />
@@ -144,11 +194,14 @@ export function App() {
             onNew={() => setScreen({ kind: 'setup' })}
             onRetry={() => {
               const date = dailyDateOf(initial.seed);
+              const monday = weeklyDateOf(initial.seed);
               if (initial.mode === 'daily' && date) launchDaily(date);
+              else if (initial.mode === 'weekly' && monday) launchWeekly(monday);
               else launch(initial.mode, initial.seed, false, { bagType: initial.bagType, stake: initial.stake });
             }}
             onTraining={() => setScreen({ kind: 'training' })}
             onTitle={toTitle}
+            leftHand={profile.settings.leftHand}
           />
         );
       }

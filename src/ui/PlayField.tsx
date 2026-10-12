@@ -11,7 +11,7 @@ import { BOARD_SIZE } from '../content/balance';
 import { SHAPES } from '../content/blocks';
 import { canPlace, cellIndex, fullLines, lineCells, placeCells, type Board } from '../core/board';
 import type { Piece } from '../core/pieces';
-import { canFit, pieceAt, type HandSlot, type StageState } from '../core/stage';
+import { canFit, canPick, pieceAt, type HandSlot, type StageState, type StageToast } from '../core/stage';
 import { BoardView, type BoardPreview } from './BoardView';
 import { PieceView } from './PieceView';
 import { ScoreLine } from './ScoreLine';
@@ -44,8 +44,8 @@ interface DragSession {
   overStash: boolean;
 }
 
-/** 탭이 무엇을 할지: 버리기·부채는 블록 탭, 망치·빗자루는 판 칸 탭 */
-export type TapMode = 'none' | 'discard' | 'fan' | 'hammer' | 'broom';
+/** 탭이 무엇을 할지: 버리기는 블록 탭, 망치·빗자루는 판 칸 탭 */
+export type TapMode = 'none' | 'discard' | 'hammer' | 'broom';
 
 interface Props {
   stage: StageState;
@@ -58,12 +58,25 @@ interface Props {
   onStash: (slot: number) => void;
   onReveal: (slot: number) => void;
   onCellTap: (index: number) => void;
+  /** 점수 줄을 누르면 계산 과정 보기 */
+  onScoreDetails: () => void;
 }
 
 const inside = (rect: DOMRect, x: number, y: number) =>
   x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 
-export function PlayField({ stage, interactive, mode, notice, onPlace, onSlotTap, onStash, onReveal, onCellTap }: Props) {
+export function PlayField({
+  stage,
+  interactive,
+  mode,
+  notice,
+  onPlace,
+  onSlotTap,
+  onStash,
+  onReveal,
+  onCellTap,
+  onScoreDetails,
+}: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const stashRef = useRef<HTMLDivElement>(null);
   const floatRef = useRef<HTMLDivElement>(null);
@@ -72,9 +85,13 @@ export function PlayField({ stage, interactive, mode, notice, onPlace, onSlotTap
   const [dragging, setDragging] = useState<{ slot: HandSlot; cell: number } | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const [overStash, setOverStash] = useState(false);
+  /** 판 상태는 그대로 두고 화면에만 띄우는 짧은 알림 (판 알림과 겹치지 않게 id는 음수) */
+  const [hint, setHint] = useState<StageToast | null>(null);
 
   // 끄는 중에 화면이 사라지면 창에 단 리스너도 뗀다
   useEffect(() => () => detachRef.current?.(), []);
+  // 판에서 새 알림이 오면 화면 알림은 내린다
+  useEffect(() => setHint(null), [stage.toast?.id]);
 
   /** 끄는 블록을 손가락 위에 띄우고, 판 위 미리보기는 칸이 바뀔 때만 다시 그린다 */
   const follow = (session: DragSession) => {
@@ -108,8 +125,14 @@ export function PlayField({ stage, interactive, mode, notice, onPlace, onSlotTap
       onSlotTap(slot);
       return;
     }
-    // 🐅 가려진 블록은 집어 드는 순간 드러난다
-    if (piece.hidden && slot !== 'stash') onReveal(slot);
+    // 🐅 가려진 블록은 핸드의 마지막 블록으로만 집을 수 있고, 집는 순간 드러난다
+    if (piece.hidden && slot !== 'stash') {
+      if (!canPick(stage, slot)) {
+        setHint((prev) => ({ id: Math.min(prev?.id ?? 0, 0) - 1, text: '🐅 ?는 핸드의 마지막 블록으로만 집을 수 있어요' }));
+        return;
+      }
+      onReveal(slot);
+    }
 
     const { pointerId, clientX: startX, clientY: startY } = event;
     let session: DragSession | null = null;
@@ -199,18 +222,16 @@ export function PlayField({ stage, interactive, mode, notice, onPlace, onSlotTap
     return { cells, valid: hover.valid, kind: SHAPES[draggedPiece.shape].kind, clearing };
   }, [hover, draggedPiece, stage.board]);
 
-  // 망치는 블록·바위 칸만, 빗자루는 물이 아닌 아무 칸 (그 칸의 줄을 비운다)
+  // 망치(3×3의 가운데)·빗자루(그 칸의 줄)는 물이 아닌 아무 칸
   const targeting = interactive && (mode === 'hammer' || mode === 'broom');
-  const canTarget = (index: number) => {
-    const cell = stage.board[index];
-    return mode === 'hammer' ? cell !== null && cell.kind !== 'water' : cell?.kind !== 'water';
-  };
+  const canTarget = (index: number) => stage.board[index]?.kind !== 'water';
 
   const slotClasses = (slot: HandSlot, piece: Piece | null) => {
     const classes = ['slot'];
     if (piece && dragging?.slot === slot) classes.push('lifted');
-    if (piece && !canFit(stage, piece)) classes.push('nofit');
-    if (piece && (mode === 'fan' || (mode === 'discard' && slot !== 'stash'))) classes.push('pickable');
+    // 가려진 블록은 놓을 데가 있는지도 보여주지 않는다
+    if (piece && !piece.hidden && !canFit(stage, piece)) classes.push('nofit');
+    if (piece && mode === 'discard' && slot !== 'stash') classes.push('pickable');
     return classes;
   };
 
@@ -231,7 +252,7 @@ export function PlayField({ stage, interactive, mode, notice, onPlace, onSlotTap
         />
       </div>
 
-      <ScoreLine lastClear={stage.lastClear} notice={notice} toast={stage.toast} />
+      <ScoreLine lastClear={stage.lastClear} notice={notice} toast={hint ?? stage.toast} onDetails={onScoreDetails} />
 
       <div className="hand" data-slots={slotCount} style={{ gridTemplateColumns: `repeat(${slotCount}, 1fr)` }}>
         {stage.hand.map((piece, slot) => (
@@ -243,6 +264,7 @@ export function PlayField({ stage, interactive, mode, notice, onPlace, onSlotTap
           >
             {piece && <PieceView piece={piece} cell={HAND_CELL} />}
             {piece?.transformed && <span className="badge">👹</span>}
+            {piece?.hidden && !canPick(stage, slot) && <span className="badge">🔒</span>}
             {piece && stage.rotation && mode === 'none' && !piece.hidden && <span className="badge rotate">🌀</span>}
           </div>
         ))}

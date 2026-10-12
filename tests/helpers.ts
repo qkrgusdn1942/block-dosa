@@ -26,12 +26,19 @@ export function clearCtx(overrides: Partial<ClearContext> = {}): ClearContext {
 
 const CELL_CODES: Record<string, Filled> = {
   '#': { kind: 'block', shape: 'dot' },
+  '*': { kind: 'block', shape: 'dot', frozen: true },
   R: { kind: 'rock', cracked: false },
   r: { kind: 'rock', cracked: true },
   '~': { kind: 'water' },
+  L: { kind: 'lock' },
+  M: { kind: 'moss' },
+  B: { kind: 'bomb', fuse: 3 },
 };
 
-/** '#' = 블록, 'R' = 바위, 'r' = 금 간 바위, '~' = 물, '.' = 빈칸. 8줄 × 8글자 (모자라면 빈칸) */
+/**
+ * '#' = 블록, '*' = 언 블록, 'R' = 바위, 'r' = 금 간 바위, '~' = 물, 'L' = 자물쇠, 'M' = 이끼, 'B' = 시한폭탄,
+ * '.' = 빈칸. 8줄 × 8글자 (모자라면 빈칸)
+ */
 export function boardFrom(rows: string[]): Board {
   const board = emptyBoard().slice();
   rows.forEach((line, r) => {
@@ -48,12 +55,29 @@ export function boardText(board: Board): string[] {
   for (let r = 0; r < 8; r++) {
     let line = '';
     for (let c = 0; c < 8; c++) {
-      const cell = board[cellIndex(r, c)];
-      line += !cell ? '.' : cell.kind === 'block' ? '#' : cell.kind === 'water' ? '~' : cell.cracked ? 'r' : 'R';
+      line += cellText(board[cellIndex(r, c)]);
     }
     rows.push(line);
   }
   return rows;
+}
+
+function cellText(cell: Filled | null): string {
+  if (!cell) return '.';
+  switch (cell.kind) {
+    case 'block':
+      return cell.frozen ? '*' : '#';
+    case 'rock':
+      return cell.cracked ? 'r' : 'R';
+    case 'water':
+      return '~';
+    case 'lock':
+      return 'L';
+    case 'moss':
+      return 'M';
+    case 'bomb':
+      return 'B';
+  }
 }
 
 export function pieceOf(shape: ShapeId, orientation = 0, uid = 1000): Piece {
@@ -87,6 +111,8 @@ export function setup(overrides: Partial<StageSetup> = {}): StageSetup {
     extraHands: 0,
     extraDiscards: 0,
     extraRocks: 0,
+    obstacle: null,
+    consumableSlots: 2,
     rescue: false,
     scoreAttack: false,
     ...overrides,

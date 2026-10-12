@@ -12,6 +12,7 @@
 npm install
 npm run dev      # 개발 서버 (http://localhost:5173)
 npm test         # 게임 로직 테스트
+npm run sim      # 봇이 런을 돌려 고개별 통과율 확인 (SIM_RUNS=500 npm run sim)
 npm run build    # dist/에 배포용 정적 파일 생성
 ```
 
@@ -29,6 +30,7 @@ npm run build    # dist/에 배포용 정적 파일 생성
 
 - `stage`: `small`(판 1) · `big`(판 2) · `boss`
 - `boss`: `dokkaebi` · `gumiho` · `eodukssini` · `mulgwishin` · `grimReaper` · `bulgasari` · `gangcheol` · `dueoksini` · `jangsanbeom` · `imugi`
+- 방해 칸은 고개 4 판 2부터 나온다: `/?ante=4&stage=big`
 - `bag`: `basic` · `bars` · `squares` · `chaos`, `stake`: `1`~`8`
 
 배포본은 홈 화면에 추가(PWA)할 수 있고, 한 번 열면 오프라인에서도 열린다. 서비스 워커는 배포본에서만 켜진다.
@@ -42,4 +44,5 @@ npm run build    # dist/에 배포용 정적 파일 생성
 | `src/ui` | React 화면과 드래그 조작 |
 | `public` | 홈 화면 설치용 manifest, 아이콘, 서비스 워커 |
 | `tests` | Vitest 단위 테스트 |
+| `scripts` | 밸런스 확인용 봇 (`npm run sim`) |
 | `docs` | 기획 문서 |

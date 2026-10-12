@@ -1,5 +1,6 @@
 import {
   CONSUMABLE_PRICE,
+  INK_PRICE,
   PACK_CHOICES,
   PACK_PRICE,
   PATTERN_IDS,
@@ -43,6 +44,9 @@ export interface ShopState {
   freeRerolls: number;
   /** 난이도 "진인"부터 붙는 가격 */
   priceDelta: number;
+  /** 판 건너뛰기 보상: 블록 팩 공짜 / 부적 반값 */
+  freePack: boolean;
+  discount: boolean;
   /** 부적 진열 수 (수련 "단골"로 늘어남) */
   talismanCount: number;
   talismans: ShopOffer<TalismanId>[];
@@ -57,18 +61,23 @@ export interface ShopState {
 }
 
 const basePrice = (id: TalismanId) => TALISMAN_PRICE[TALISMANS[id].rarity];
-export const talismanPrice = (id: TalismanId, priceDelta = 0) => basePrice(id) + priceDelta;
+/** 진열 가격: 난이도 가격을 더하고, 반값이면 절반 (내림, 최소 $1) */
+export const talismanPrice = (id: TalismanId, priceDelta = 0, discount = false) =>
+  discount ? Math.max(1, Math.floor((basePrice(id) + priceDelta) / 2)) : basePrice(id) + priceDelta;
 export const sellPrice = (id: TalismanId) => Math.max(1, Math.floor(basePrice(id) / 2));
 export const rerollCost = (shop: ShopState) => (shop.freeRerolls > 0 ? 0 : REROLL_BASE + shop.rerolls);
-export const packPrice = (shop: ShopState) => PACK_PRICE + shop.priceDelta;
+export const packPrice = (shop: ShopState) => (shop.freePack ? 0 : PACK_PRICE + shop.priceDelta);
 export const removalPrice = (shop: ShopState) => REMOVAL_PRICE + shop.priceDelta;
+/** 소모품 진열 가격 (🖌️ 먹은 조금 싸다) */
+export const consumablePrice = (item: Consumable, priceDelta = 0) =>
+  (item.kind === 'ink' ? INK_PRICE : CONSUMABLE_PRICE) + priceDelta;
 
 /** 해금된 부적. 기록이 null이면 전부 (오늘의 판·코드 도전은 누구나 같은 조건) */
 export function talismanPool(records: UnlockRecords | null): TalismanId[] {
   return TALISMAN_IDS.filter((id) => isUnlocked(TALISMANS[id].unlock, records));
 }
 
-function pickWeighted<T>(rng: Rng, weights: ReadonlyArray<readonly [T, number]>): T {
+export function pickWeighted<T>(rng: Rng, weights: ReadonlyArray<readonly [T, number]>): T {
   const total = weights.reduce((sum, [, w]) => sum + w, 0);
   let roll = rng.next() * total;
   for (const [value, weight] of weights) {
@@ -133,19 +142,19 @@ function stock(
   owned: ReadonlySet<TalismanId>,
   talismanCount: number,
   priceDelta: number,
+  discount: boolean,
   pool: readonly TalismanId[],
 ) {
   return {
     talismans: rollTalismans(rng, owned, talismanCount, SHOP_RARITY_WEIGHTS, pool).map((item) => ({
       item,
-      price: talismanPrice(item, priceDelta),
+      price: talismanPrice(item, priceDelta, discount),
       sold: false,
     })),
-    consumables: Array.from({ length: SHOP_CONSUMABLE_COUNT }, () => ({
-      item: rollConsumable(rng),
-      price: CONSUMABLE_PRICE + priceDelta,
-      sold: false,
-    })),
+    consumables: Array.from({ length: SHOP_CONSUMABLE_COUNT }, () => {
+      const item = rollConsumable(rng);
+      return { item, price: consumablePrice(item, priceDelta), sold: false };
+    }),
   };
 }
 
@@ -155,6 +164,8 @@ export interface ShopOptions {
   priceDelta?: number;
   /** 진열될 수 있는 부적 (해금 반영) */
   pool?: readonly TalismanId[];
+  freePack?: boolean;
+  discount?: boolean;
 }
 
 export function createShop(
@@ -164,15 +175,24 @@ export function createShop(
   owned: ReadonlySet<TalismanId>,
   options: ShopOptions = {},
 ): ShopState {
-  const { talismanCount = SHOP_TALISMAN_COUNT, freeRerolls = 0, priceDelta = 0, pool = TALISMAN_IDS } = options;
+  const {
+    talismanCount = SHOP_TALISMAN_COUNT,
+    freeRerolls = 0,
+    priceDelta = 0,
+    pool = TALISMAN_IDS,
+    freePack = false,
+    discount = false,
+  } = options;
   const rng = Rng.fromSeed(seed, 'shop', ante, kind);
-  const items = stock(rng, owned, talismanCount, priceDelta, pool);
+  const items = stock(rng, owned, talismanCount, priceDelta, discount, pool);
   return {
     ...items,
     rng: rng.state,
     rerolls: 0,
     freeRerolls,
     priceDelta,
+    freePack,
+    discount,
     talismanCount,
     pack: { bought: false, choices: null, done: false },
     removalUsed: false,
@@ -186,7 +206,7 @@ export function restock(
   pool: readonly TalismanId[] = TALISMAN_IDS,
 ): ShopState {
   const rng = new Rng(shop.rng);
-  const items = stock(rng, owned, shop.talismanCount, shop.priceDelta, pool);
+  const items = stock(rng, owned, shop.talismanCount, shop.priceDelta, shop.discount, pool);
   const free = shop.freeRerolls > 0;
   return {
     ...shop,

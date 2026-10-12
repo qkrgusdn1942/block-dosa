@@ -26,6 +26,7 @@ export function TalismanSheet({ talisman, index, count, sealed, canSell, onMove,
     <Sheet title={`${def.emoji} ${def.name}`} sub={`${RARITY_NAMES[def.rarity]} · ${def.text}`} onClose={onClose}>
       {def.status && <p className="status-line">{def.status(talisman)}</p>}
       {sealed && <p className="status-line">🔒 이번 판 동안 봉인됨</p>}
+      {def.rarity === 'cursed' && <p className="status-line">저주받은 부적이라 팔 수 없어요.</p>}
       <p className="hint">부적은 왼쪽부터 순서대로 발동해요. 배수 + 부적을 배수 × 부적보다 왼쪽에 두면 이득이에요.</p>
       <div className="move-row">
         <button disabled={index === 0} onClick={() => onMove(-1)}>
@@ -131,6 +132,8 @@ function EnhancementLegend({ enhs }: { enhs: ReadonlySet<Enhancement> }) {
 export interface BagPick {
   title: string;
   sub: string;
+  /** 이미 고른 블록 (🔖 도장은 2개를 고른다) */
+  exclude?: readonly number[];
   onPick: (bagId: number) => void;
 }
 
@@ -153,16 +156,26 @@ export function BagSheet({ bag, pile, pick, onClose }: BagSheetProps) {
       onClose={onClose}
     >
       <div className="bag-grid">
-        {groups.map((group) => (
-          // 고를 때는 그 묶음의 마지막 블록을 고른다 (같은 모양·강화라 어느 것이든 같다)
-          <button key={group.key} className="bag-item" disabled={!pick} onClick={() => pick?.onPick(group.ids.at(-1)!)}>
+        {groups.map((group) => {
+          // 고를 때는 그 묶음에서 아직 안 고른 마지막 블록 (같은 모양·강화라 어느 것이든 같다)
+          const free = group.ids.filter((id) => !pick?.exclude?.includes(id));
+          const chosen = group.ids.length - free.length;
+          return (
+          <button
+            key={group.key}
+            className={chosen > 0 ? 'bag-item chosen' : 'bag-item'}
+            disabled={!pick || free.length === 0}
+            onClick={() => pick?.onPick(free.at(-1)!)}
+          >
             <PieceView piece={shapePiece(group.shape, group.enh)} cell={12} />
             <span className="bag-name">{blockName(group.shape, group.enh)}</span>
             <span className="bag-count">
               {pile ? `${group.ids.filter((id) => left.has(id)).length}/${group.ids.length}` : `×${group.ids.length}`}
+              {chosen > 0 && ` · ${chosen}개 고름`}
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
       <EnhancementLegend enhs={new Set(bag.flatMap((entry) => (entry.enh ? [entry.enh] : [])))} />
       <div className="sheet-actions">

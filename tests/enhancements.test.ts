@@ -21,33 +21,40 @@ function clearRow(overrides: Partial<StageState> = {}, setupOverrides = {}) {
 }
 
 describe('블록 강화', () => {
-  it('✦ 수정: 칸당 칩 +5', () => {
+  it('✦ 수정: 칸당 칩 +10', () => {
     const next = clearRow({ board: withCells(ROW, { [at(1)]: enhancedCell('crystal'), [at(2)]: enhancedCell('crystal') }) });
-    expect(next.score).toBe(18 + 10);
+    expect(next.score).toBe(18 + 20);
   });
 
-  it('▲ 불꽃: 칸당 배수 +1', () => {
+  it('▲ 불꽃: 칸당 배수 +2', () => {
     const next = clearRow({ board: withCells(ROW, { [at(1)]: enhancedCell('fire'), [at(2)]: enhancedCell('fire') }) });
-    expect(next.score).toBe(18 * 3);
+    expect(next.score).toBe(18 * 5);
   });
 
-  it('$ 금: 칸당 +$1, 한 번에 최대 $5, 🪓 금도끼는 2배', () => {
+  it('$ 금: 칸당 +$1, 한 번에 최대 $8, 🪓 금도끼는 2배', () => {
     const three = { [at(1)]: enhancedCell('gold'), [at(2)]: enhancedCell('gold'), [at(3)]: enhancedCell('gold') };
     expect(clearRow({ board: withCells(ROW, three) }).goldEarned).toBe(3);
     const seven = Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((c) => [at(c), enhancedCell('gold')]));
-    expect(clearRow({ board: withCells(ROW, seven) }).goldEarned).toBe(5);
+    expect(clearRow({ board: withCells(ROW, seven) }).goldEarned).toBe(7);
+    // 십자로 금 칸 14개를 지워도 한 번에 $8까지
+    const cross = Object.fromEntries([
+      ...[1, 2, 3, 4, 5, 6, 7].map((c) => [at(c), enhancedCell('gold')]),
+      ...[1, 2, 3, 4, 5, 6, 7].map((r) => [cellIndex(r, 0), enhancedCell('gold')]),
+    ]);
+    const crossed = stageWith({ board: withCells(boardFrom(['.', '', '', '', '', '', '', '.......#']), cross), hand: [pieceOf('dot', 0, 1000), null, null] });
+    expect(stageReducer(crossed, { type: 'place', slot: 0, row: 0, col: 0 }).goldEarned).toBe(8);
     const axe = clearRow({ board: withCells(ROW, three), talismans: [talisman('goldAxe')] });
     expect(axe.goldEarned).toBe(6);
     expect(axe.lastClear?.gold).toBe(6);
   });
 
-  it('◇ 유리: 블록 하나당 ×1.5 (같은 블록의 칸은 한 번만)', () => {
+  it('◇ 유리: 블록 하나당 ×2 (같은 블록의 칸은 한 번만)', () => {
     const samePiece = { [at(1)]: enhancedCell('glass', 7), [at(2)]: enhancedCell('glass', 7) };
     const never = rngStateWhere((rng) => rng.next() >= GLASS_BREAK_CHANCE);
-    expect(clearRow({ board: withCells(ROW, samePiece), luckRng: never }).score).toBe(27);
+    expect(clearRow({ board: withCells(ROW, samePiece), luckRng: never }).score).toBe(36);
     const twoPieces = { [at(1)]: enhancedCell('glass', 7), [at(2)]: enhancedCell('glass', 8) };
     const neverTwice = rngStateWhere((rng) => rng.next() >= GLASS_BREAK_CHANCE && rng.next() >= GLASS_BREAK_CHANCE);
-    expect(clearRow({ board: withCells(ROW, twoPieces), luckRng: neverTwice }).score).toBe(Math.floor(18 * 2.25));
+    expect(clearRow({ board: withCells(ROW, twoPieces), luckRng: neverTwice }).score).toBe(18 * 4);
   });
 
   it('◇ 유리: 1/4 확률로 깨져서 가방과 섞인 더미에서 사라진다. 가방이 최소 크기면 버틴다', () => {

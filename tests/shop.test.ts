@@ -18,7 +18,7 @@ import {
 } from '../src/core/shop';
 
 describe('장터', () => {
-  it('소모품 6종이 정한 비율대로 나오고, 도장에는 강화 종류가 붙는다', () => {
+  it('소모품 7종이 정한 비율대로 나오고, 도장에는 강화 종류가 붙는다', () => {
     const rng = Rng.fromSeed('consumable-test');
     const rolls = 10_000;
     const counts: Record<string, number> = {};
@@ -27,7 +27,7 @@ describe('장터', () => {
       counts[item.kind] = (counts[item.kind] ?? 0) + 1;
       if (item.kind === 'stamp') expect(ENHANCEMENT_IDS).toContain(item.enh);
     }
-    const expected = { scroll: 0.4, hammer: 0.15, fan: 0.12, broom: 0.1, stamp: 0.15, ink: 0.08 };
+    const expected = { scroll: 0.38, hammer: 0.14, fan: 0.11, broom: 0.09, stamp: 0.14, ink: 0.08, hourglass: 0.06 };
     for (const [kind, p] of Object.entries(expected)) expect(counts[kind] / rolls).toBeCloseTo(p, 1);
   });
 
@@ -43,7 +43,7 @@ describe('장터', () => {
   it('난이도 가격: 부적·소모품·팩·블록 빼기 +$1, 팔 때는 그대로', () => {
     const shop = createShop('SHOP01', 1, 'small', new Set(), { priceDelta: 1 });
     for (const offer of shop.talismans) expect(offer.price).toBe(talismanPrice(offer.item) + 1);
-    for (const offer of shop.consumables) expect(offer.price).toBe(4);
+    for (const offer of shop.consumables) expect(offer.price).toBe(offer.item.kind === 'ink' ? 3 : 4);
     expect(packPrice(shop)).toBe(PACK_PRICE + 1);
     expect(removalPrice(shop)).toBe(REMOVAL_PRICE + 1);
     expect(sellPrice('tiger')).toBe(4);
@@ -68,9 +68,9 @@ describe('장터', () => {
 
   it('해금: 새 런은 해금한 부적만, 기록을 따지지 않으면(오늘의 판·코드 도전) 전부', () => {
     const pool = talismanPool(NO_UNLOCK_RECORDS);
-    for (const locked of ['club', 'snowman', 'toad'] as const) expect(pool).not.toContain(locked);
-    expect(talismanPool(null)).toHaveLength(34);
-    expect(talismanPool({ ...NO_UNLOCK_RECORDS, bestAnte: 5, totalPerfects: 10 })).toHaveLength(34);
+    for (const locked of ['club', 'snowman', 'toad', 'demonTile'] as const) expect(pool).not.toContain(locked);
+    expect(talismanPool(null)).toHaveLength(37);
+    expect(talismanPool({ ...NO_UNLOCK_RECORDS, bestAnte: 5, totalPerfects: 10 })).toHaveLength(37);
     for (let i = 0; i < 50; i++) {
       const shop = createShop(`P${i}`, 3, 'small', new Set(), { pool, talismanCount: 4 });
       for (const offer of shop.talismans) expect(pool).toContain(offer.item);

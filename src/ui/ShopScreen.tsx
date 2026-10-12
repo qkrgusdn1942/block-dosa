@@ -1,8 +1,9 @@
 import { MIN_BAG_SIZE, RARITY_NAMES, STAGE_NAMES } from '../content/balance';
 import { BOSSES } from '../content/bosses';
+import { OBSTACLES } from '../content/obstacles';
 import { consumableInfo } from '../content/consumables';
 import { TALISMANS } from '../content/talismans';
-import { formatKo } from '../core/format';
+import { formatScore } from '../core/format';
 import {
   consumableSlots,
   consumableSlotsFull,
@@ -24,14 +25,16 @@ interface Props {
   onConsumableTap: (index: number) => void;
   onBag: () => void;
   onRemoveBlock: () => void;
+  leftHand: boolean;
 }
 
 /** 판 사이 장터 → docs/03-roguelike.md */
-export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBag, onRemoveBlock }: Props) {
+export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBag, onRemoveBlock, leftHand }: Props) {
   const shop = run.shop;
   if (!shop) return null;
   const next = upcomingStage(run);
   const nextBoss = next.boss ? BOSSES[next.boss] : null;
+  const nextObstacle = next.obstacle ? OBSTACLES[next.obstacle] : null;
   const fullTalismans = talismanSlotsFull(run);
   const fullConsumables = consumableSlotsFull(run);
   const reroll = rerollCost(shop);
@@ -42,7 +45,7 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
   const buyLabel = (sold: boolean, full: boolean, price: number) => (sold ? '판매 완료' : full ? '칸 가득' : `$${price}`);
 
   return (
-    <div className="screen shop-screen">
+    <div className={leftHand ? 'screen shop-screen left-hand' : 'screen shop-screen'}>
       <header className="shop-head">
         <h1>장터</h1>
         <span className="gold big">${run.gold}</span>
@@ -53,7 +56,8 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
         ) : (
           <>
             다음: 고개 {next.ante} · {STAGE_NAMES[next.kind]}
-            {nextBoss && ` ${nextBoss.emoji} ${nextBoss.name}`} · 목표 {formatKo(next.target)}
+            {nextBoss && ` ${nextBoss.emoji} ${nextBoss.name}`}
+            {nextObstacle && ` ${nextObstacle.emoji} ${nextObstacle.name}`} · 목표 {formatScore(next.target)}
           </>
         )}
       </p>
@@ -66,7 +70,7 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
         onTap={onTalismanTap}
       />
 
-      <h2 className="section-title">부적</h2>
+      <h2 className="section-title">부적{shop.discount && <span className="tag sale">🏷️ 반값</span>}</h2>
       <div className="offers">
         {shop.talismans.length === 0 && <p className="hint">더 살 수 있는 부적이 없어요.</p>}
         {shop.talismans.map((offer, slot) => {
@@ -77,6 +81,7 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
               emoji={def.emoji}
               name={def.name}
               tag={RARITY_NAMES[def.rarity]}
+              cursed={def.rarity === 'cursed'}
               text={def.text}
               action={buyLabel(offer.sold, fullTalismans, offer.price)}
               disabled={offer.sold || fullTalismans || run.gold < offer.price}
@@ -110,7 +115,7 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
           emoji="🎁"
           name="블록 팩"
           text="블록 3개 중 1개를 골라 가방에 넣어요 (가끔 강화된 블록)"
-          action={shop.pack.bought ? '판매 완료' : `$${pack}`}
+          action={shop.pack.bought ? '판매 완료' : pack === 0 ? '공짜' : `$${pack}`}
           disabled={shop.pack.bought || run.gold < pack}
           onAction={() => dispatch({ type: 'buyPack' })}
         />

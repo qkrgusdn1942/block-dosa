@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { NO_PERKS } from '../src/content/upgrades';
 import { createRun, type RunState } from '../src/core/run';
 import { shareText } from '../src/core/share';
+import { WEEKLY_RULE_BY_ID } from '../src/content/weekly';
 import { talisman } from './helpers';
 
 function finished(overrides: Partial<RunState>, mode: RunState['mode'] = 'normal'): RunState {
@@ -62,6 +63,20 @@ describe('결과 공유 텍스트', () => {
       '🌪️ 혼돈 가방 · 난이도 3 수행자',
       '⛰️ 여덟 고개 완주 → ♾️ 고개 11 · 판 2에서 멈춤',
     ]);
+  });
+
+  it('주간 도전: 주 표시, 그 주의 규칙, 건너뛴 판은 ⬜', () => {
+    const run = createRun('W20261012', { mode: 'weekly' });
+    const text = shareText({ ...run, official: true, phase: 'over', history: ['skip', 'clear', 'fail'], talismans: [] }).split('\n');
+    expect(text[0]).toBe('🧱 블록 도사 · 주간 도전 10/12~10/18');
+    expect(text[1]).toContain(WEEKLY_RULE_BY_ID[run.rule!].name);
+    expect(text).toContain('⬜🟩🟥');
+    expect(text.at(-1)).toBe('코드 W20261012');
+  });
+
+  it('기본이 아닌 가방·난이도는 코드에도 붙는다', () => {
+    const run = finished({ bagType: 'chaos', stake: 3 });
+    expect(shareText(run).split('\n').at(-1)).toBe('코드 K7Q2MX-H3');
   });
 
   it('코드 도전 런은 도전장 표시', () => {

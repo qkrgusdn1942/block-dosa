@@ -8,12 +8,17 @@ import {
   GOLD_PER_HAND_LEFT,
   INTEREST_STEP,
   MIN_BAG_SIZE,
+  OBSTACLE_FROM_ANTE,
   PATTERN_IDS,
   RELIC_LEGENDARY_CHANCE,
   RELIC_LEGENDARY_FROM_ANTE,
   RELIC_RARITY_WEIGHTS,
   SHOP_TALISMAN_COUNT,
+  SKIP_FREE_REROLLS,
+  SKIP_GOLD,
+  SKIP_STUDY_LEVELS,
   STAGE_NAMES,
+  STAMP_BLOCKS,
   STAGE_REWARD,
   STAGE_TARGET_MULT,
   START_GOLD,
@@ -22,14 +27,19 @@ import {
   type PatternLevels,
   type StageKind,
 } from '../content/balance';
-import { BAG_BY_ID, type BagType, type BagTypeDef } from '../content/bags';
+import { BAG_BY_ID, type BagType } from '../content/bags';
+import type { ShapeId } from '../content/blocks';
 import { BOSSES, FINAL_BOSS, REGULAR_BOSSES, type BossId } from '../content/bosses';
 import type { Consumable } from '../content/consumables';
-import { ENHANCEMENT_IDS } from '../content/enhancements';
+import { ENHANCEMENT_IDS, type Enhancement } from '../content/enhancements';
+import { OBSTACLE_IDS, type ObstacleId } from '../content/obstacles';
+import { SKIP_REWARD_IDS, type SkipRewardId } from '../content/skips';
 import { stakeRules } from '../content/stakes';
-import { TALISMANS, type TalismanId, type TalismanInstance } from '../content/talismans';
+import { canSell, TALISMANS, type TalismanId, type TalismanInstance } from '../content/talismans';
 import { NO_UNLOCK_RECORDS, type UnlockRecords } from '../content/unlocks';
 import { NO_PERKS, type RunPerks } from '../content/upgrades';
+import { WEEKLY_RULE_BY_ID, type WeeklyRule, type WeeklyRuleId } from '../content/weekly';
+import { weeklyDateOf, weeklyRuleOf } from './daily';
 import { passiveTotals } from './effects';
 import { levelUp, moveTalisman } from './loadout';
 import { Rng } from './rng';
@@ -77,10 +87,11 @@ export type RunPhase =
 /**
  * normal = 새 런 (수련 적용, 고개 8)
  * daily = 오늘의 판 (고개 3까지 + 끝판)
+ * weekly = 주간 도전 (오늘의 판과 같은 코스 + 그 주의 특수 규칙)
  * seed = 코드로 도전 (고개 8)
- * 오늘의 판과 코드 도전은 App이 수련 없이 시작한다 → docs/10-social.md
+ * 오늘의 판·주간 도전·코드 도전은 App이 수련 없이 시작한다 → docs/10-social.md
  */
-export type RunMode = 'normal' | 'daily' | 'seed';
+export type RunMode = 'normal' | 'daily' | 'weekly' | 'seed';
 
 export interface Course {
   antes: number;
@@ -89,10 +100,30 @@ export interface Course {
 }
 
 export const courseOf = (mode: RunMode): Course =>
-  mode === 'daily' ? { antes: DAILY_ANTES, finale: true } : { antes: ANTE_COUNT, finale: false };
+  mode === 'daily' || mode === 'weekly' ? { antes: DAILY_ANTES, finale: true } : { antes: ANTE_COUNT, finale: false };
 
-/** 판 결과 표시: 핸드를 남기고 클리어 / 마지막 핸드에 클리어 / 실패 */
-export type StageMark = 'clear' | 'close' | 'fail';
+/** 판 결과 표시: 핸드를 남기고 클리어 / 마지막 핸드에 클리어 / 실패 / 건너뜀 */
+export type StageMark = 'clear' | 'close' | 'fail' | 'skip';
+
+/** 이번 런에서 만난 것 (런이 끝나면 도감에 더한다) → docs/06-incremental.md */
+export interface Seen {
+  talismans: TalismanId[];
+  bosses: BossId[];
+  obstacles: ObstacleId[];
+  shapes: ShapeId[];
+  enhancements: Enhancement[];
+}
+
+export const NOTHING_SEEN: Seen = { talismans: [], bosses: [], obstacles: [], shapes: [], enhancements: [] };
+
+/** 판 건너뛰기로 받아서 다음 장터에서 쓰는 것 */
+export interface Vouchers {
+  freePack: boolean;
+  discount: boolean;
+  freeRerolls: number;
+}
+
+export const NO_VOUCHERS: Vouchers = { freePack: false, discount: false, freeRerolls: 0 };
 
 export interface RewardLine {
   label: string;
@@ -122,6 +153,8 @@ export interface RunState {
   stake: number;
   /** 고개 8을 넘어 끝없는 모드로 계속하는 중 */
   endless: boolean;
+  /** 주간 도전의 특수 규칙 */
+  rule: WeeklyRuleId | null;
   /** 지나온 판 결과 (공유용 🟩🟨🟥) */
   history: readonly StageMark[];
   ante: number;
@@ -148,6 +181,8 @@ export interface RunState {
   records: UnlockRecords;
   /** 남은 🙏 기사회생 */
   rescueLeft: number;
+  vouchers: Vouchers;
+  seen: Seen;
 }
 
 export type RunAction =
@@ -162,7 +197,8 @@ export type RunAction =
   | { type: 'pickPack'; index: number }
   | { type: 'skipPack' }
   | { type: 'removeBlock'; bagId: number }
-  | { type: 'stamp'; index: number; bagId: number }
+  /** 🔖 도장: 가방 블록을 STAMP_BLOCKS개까지 강화 */
+  | { type: 'stamp'; index: number; bagIds: number[] }
   | { type: 'ink'; index: number; bagId: number }
   | { type: 'reroll' }
   | { type: 'sell'; uid: number }
@@ -170,7 +206,8 @@ export type RunAction =
   | { type: 'useScroll'; index: number }
   | { type: 'next' }
   | { type: 'finish' }
-  | { type: 'endless' };
+  | { type: 'endless' }
+  | { type: 'skip' };
 
 /** 고개 1~7은 일반 요괴 중에서 (바로 앞 고개와 다르게), 고개 8은 이무기 */
 export function rollBosses(seed: string): BossId[] {
@@ -217,9 +254,21 @@ export function stageTarget(ante: number, kind: StageKind, boss: BossId | null, 
 export const bossOf = (run: Pick<RunState, 'seed' | 'bosses' | 'ante' | 'stageKind'>) =>
   run.stageKind === 'boss' ? bossAt(run, run.ante) : null;
 
+const ruleOf = (run: Pick<RunState, 'rule'>): WeeklyRule | null => (run.rule ? WEEKLY_RULE_BY_ID[run.rule] : null);
+
+/** 판 1·판 2의 방해 칸: 고개 4부터 판 2, 고개 6부터 판 1도 (주간 도전 "방해 칸 잔치"는 고개 1부터) */
+export function obstacleFor(run: Pick<RunState, 'seed' | 'rule'>, ante: number, kind: StageKind): ObstacleId | null {
+  if (kind !== 'small' && kind !== 'big') return null;
+  const from = ruleOf(run)?.obstaclesFromAnte ?? OBSTACLE_FROM_ANTE[kind];
+  if (ante < from) return null;
+  const rng = Rng.fromSeed(run.seed, 'obstacle', ante, kind);
+  return OBSTACLE_IDS[rng.int(OBSTACLE_IDS.length)];
+}
+
 function buildStage(run: Omit<RunState, 'stage'>): StageState {
   const boss = bossOf(run);
   const stake = stakeRules(run.stake);
+  const rule = ruleOf(run);
   return createStage({
     seed: run.seed,
     ante: run.ante,
@@ -230,9 +279,11 @@ function buildStage(run: Omit<RunState, 'stage'>): StageState {
     talismans: run.talismans,
     consumables: run.consumables,
     levels: run.levels,
-    extraHands: run.perks.hands + stake.handDelta,
-    extraDiscards: run.perks.discards + stake.discardDelta,
-    extraRocks: stake.extraRocks,
+    extraHands: run.perks.hands + stake.handDelta + (rule?.extraHands ?? 0),
+    extraDiscards: run.perks.discards + stake.discardDelta + (rule?.extraDiscards ?? 0),
+    extraRocks: stake.extraRocks + (rule?.extraRocks ?? 0),
+    obstacle: obstacleFor(run, run.ante, run.stageKind),
+    consumableSlots: consumableSlots(run),
     rescue: run.rescueLeft > 0,
     scoreAttack: run.stageKind === 'finale',
   });
@@ -259,18 +310,39 @@ export interface RunOptions {
 const poolFor = (mode: RunMode, records: UnlockRecords) => talismanPool(mode === 'normal' ? records : null);
 const talismanPoolOf = (run: RunState) => poolFor(run.mode, run.records);
 
-/** 가방 종류대로 채운다. 혼돈 가방은 블록마다 무작위 강화 */
-function buildBag(seed: string, def: BagTypeDef): BagEntry[] {
+/** 가방 구성대로 채운다. 혼돈 가방은 블록마다 무작위 강화 */
+function buildBag(seed: string, contents: ReadonlyArray<readonly [ShapeId, number]>, enhanceAll = false): BagEntry[] {
   const rng = Rng.fromSeed(seed, 'bag-enhance');
   const bag: BagEntry[] = [];
-  for (const [shape, count] of def.contents) {
+  for (const [shape, count] of contents) {
     for (let i = 0; i < count; i++) {
       const entry: BagEntry = { id: bag.length, shape };
-      if (def.enhanceAll) entry.enh = ENHANCEMENT_IDS[rng.int(ENHANCEMENT_IDS.length)];
+      if (enhanceAll) entry.enh = ENHANCEMENT_IDS[rng.int(ENHANCEMENT_IDS.length)];
       bag.push(entry);
     }
   }
   return bag;
+}
+
+/** 없는 것만 뒤에 붙인다 (도감용) */
+function addUnique<T>(list: readonly T[], items: readonly T[]): T[] {
+  const result = [...list];
+  for (const item of items) if (!result.includes(item)) result.push(item);
+  return result;
+}
+
+/** 판을 시작할 때 만난 요괴·방해 칸, 그때 가방에 있던 블록·강화 */
+function seeStage(seen: Seen, stage: StageState): Seen {
+  return {
+    ...seen,
+    bosses: stage.boss ? addUnique(seen.bosses, [stage.boss]) : seen.bosses,
+    obstacles: stage.obstacle ? addUnique(seen.obstacles, [stage.obstacle]) : seen.obstacles,
+    shapes: addUnique(seen.shapes, stage.bag.map((entry) => entry.shape)),
+    enhancements: addUnique(
+      seen.enhancements,
+      stage.bag.flatMap((entry) => (entry.enh ? [entry.enh] : [])),
+    ),
+  };
 }
 
 /** 수련 "첫 인연": 일반 부적 3개 */
@@ -289,11 +361,16 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     bagType = 'basic',
     stake = 1,
   } = options;
-  const bagDef = BAG_BY_ID[bagType];
-  const bag = buildBag(seed, bagDef);
+  // 주간 도전은 그 주의 규칙이 가방·시작 부적·골드를 바꾼다
+  const monday = mode === 'weekly' ? weeklyDateOf(seed) : null;
+  const rule = monday ? weeklyRuleOf(monday) : null;
+  const bagDef = BAG_BY_ID[rule?.bagType ?? bagType];
+  const bag = buildBag(seed, rule?.bagContents ?? bagDef.contents, bagDef.enhanceAll);
   let nextId = bag.length;
   const talismans: TalismanInstance[] = [];
-  if (bagDef.startTalisman) talismans.push({ uid: nextId++, id: bagDef.startTalisman, counter: 0 });
+  for (const id of new Set([bagDef.startTalisman, rule?.startTalisman])) {
+    if (id) talismans.push({ uid: nextId++, id, counter: 0 });
+  }
   const bosses = rollBosses(seed);
   if (start.boss && start.ante <= ANTE_COUNT) bosses[start.ante - 1] = start.boss;
   const levels = Object.fromEntries(
@@ -304,14 +381,15 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     seed,
     mode,
     official,
-    bagType,
+    bagType: bagDef.id,
     stake,
     endless: start.ante > ANTE_COUNT,
+    rule: rule?.id ?? null,
     history: [],
     ante: start.ante,
     stageKind: start.kind,
     phase: perks.firstCharm ? 'starter' : 'preview',
-    gold: START_GOLD + perks.startGold,
+    gold: START_GOLD + perks.startGold + (rule?.startGold ?? 0),
     bag,
     talismans,
     consumables: [],
@@ -325,6 +403,8 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     perks,
     records,
     rescueLeft: perks.secondWind ? 1 : 0,
+    vouchers: NO_VOUCHERS,
+    seen: { ...NOTHING_SEEN, talismans: talismans.map((t) => t.id) },
   };
   return { ...run, stage: buildStage(run) };
 }
@@ -363,8 +443,15 @@ export function stageReward(
   if (stage.goldEarned > 0) lines.push({ label: '💰 판에서 얻은 골드', gold: stage.goldEarned });
   lines.push(...talismanLines);
 
-  // 이자는 보상을 받기 직전의 보유 골드(판 중에 얻은 골드 포함) 기준
-  const cap = rules.interestBase + passiveTotals(talismans, stage.sealedUid).interestCap + perks.interestCap;
+  // 이자는 보상을 받기 직전의 보유 골드(판 중에 얻은 골드 포함) 기준. ⚱️ 금단지가 있으면 없다
+  const passive = passiveTotals(talismans, stage.sealedUid);
+  if (passive.noInterest) {
+    const jar = talismans.find((t) => t.uid !== stage.sealedUid && TALISMANS[t.id].passive?.noInterest);
+    const def = jar && TALISMANS[jar.id];
+    lines.push({ label: def ? `${def.emoji} ${def.name}: 이자 없음` : '이자 없음', gold: 0 });
+    return { lines, talismans };
+  }
+  const cap = rules.interestBase + passive.interestCap + perks.interestCap;
   const interest = Math.min(cap, Math.floor((gold + stage.goldEarned) / INTEREST_STEP));
   if (interest > 0) lines.push({ label: `이자 ($${INTEREST_STEP}당 $1, 최대 $${cap})`, gold: interest });
   return { lines, talismans };
@@ -421,14 +508,18 @@ function finishStage(run: RunState): RunState {
 
 const ownedIds = (run: RunState) => new Set(run.talismans.map((t) => t.id));
 
+/** 장터를 연다. 판 건너뛰기로 받은 것(공짜 팩, 반값, 공짜 리롤)은 여기서 쓰고 비운다 */
 function openShop(run: RunState): RunState {
+  const { vouchers } = run;
   const shop = createShop(run.seed, run.ante, run.stageKind, ownedIds(run), {
     talismanCount: SHOP_TALISMAN_COUNT + run.perks.shopTalismans,
-    freeRerolls: passiveTotals(run.talismans, null).freeRerolls,
+    freeRerolls: passiveTotals(run.talismans, null).freeRerolls + vouchers.freeRerolls,
     priceDelta: stakeRules(run.stake).priceDelta,
     pool: talismanPoolOf(run),
+    freePack: vouchers.freePack,
+    discount: vouchers.discount,
   });
-  return { ...run, phase: 'shop', shop };
+  return { ...run, phase: 'shop', shop, vouchers: NO_VOUCHERS };
 }
 
 /** 요괴 유품: 부적 2개(고개 4부터 가끔 전설 1개 포함) + 비전서 1개 */
@@ -445,14 +536,52 @@ export function rollRelics(run: RunState): RelicOffer[] {
   return [...talismans, { kind: 'consumable', item: randomScroll(rng) }];
 }
 
-export const talismanSlots = (run: Pick<RunState, 'perks' | 'bagType'>) =>
-  TALISMAN_SLOTS + run.perks.talismanSlots + (BAG_BY_ID[run.bagType].talismanSlotDelta ?? 0);
+export const talismanSlots = (run: Pick<RunState, 'perks' | 'bagType' | 'rule'>) =>
+  Math.max(
+    1,
+    TALISMAN_SLOTS +
+      run.perks.talismanSlots +
+      (BAG_BY_ID[run.bagType].talismanSlotDelta ?? 0) +
+      (ruleOf(run)?.talismanSlotDelta ?? 0),
+  );
 export const consumableSlots = (run: Pick<RunState, 'perks'>) => CONSUMABLE_SLOTS + run.perks.consumableSlots;
 export const talismanSlotsFull = (run: RunState) => run.talismans.length >= talismanSlots(run);
 export const consumableSlotsFull = (run: RunState) => run.consumables.length >= consumableSlots(run);
 
 function addTalisman(run: RunState, id: TalismanId): RunState {
-  return { ...run, talismans: [...run.talismans, { uid: run.nextId, id, counter: 0 }], nextId: run.nextId + 1 };
+  return {
+    ...run,
+    talismans: [...run.talismans, { uid: run.nextId, id, counter: 0 }],
+    nextId: run.nextId + 1,
+    seen: { ...run.seen, talismans: addUnique(run.seen.talismans, [id]) },
+  };
+}
+
+/** 판 1·판 2를 건너뛰면 받는 것 (판마다 정해져 있어서 미리보기에 보여준다) */
+export function skipRewardOf(run: Pick<RunState, 'seed' | 'ante' | 'stageKind'>): SkipRewardId {
+  const rng = Rng.fromSeed(run.seed, 'skip', run.ante, run.stageKind);
+  return SKIP_REWARD_IDS[rng.int(SKIP_REWARD_IDS.length)];
+}
+
+export const canSkip = (run: Pick<RunState, 'phase' | 'stageKind'>) =>
+  run.phase === 'preview' && (run.stageKind === 'small' || run.stageKind === 'big');
+
+function applySkipReward(run: RunState, reward: SkipRewardId): RunState {
+  switch (reward) {
+    case 'gold':
+      return { ...run, gold: run.gold + SKIP_GOLD };
+    case 'freePack':
+      return { ...run, vouchers: { ...run.vouchers, freePack: true } };
+    case 'discount':
+      return { ...run, vouchers: { ...run.vouchers, discount: true } };
+    case 'rerolls':
+      return { ...run, vouchers: { ...run.vouchers, freeRerolls: run.vouchers.freeRerolls + SKIP_FREE_REROLLS } };
+    case 'study': {
+      const rng = Rng.fromSeed(run.seed, 'skip-study', run.ante, run.stageKind);
+      const patterns = rng.shuffle(PATTERN_IDS).slice(0, SKIP_STUDY_LEVELS);
+      return { ...run, levels: patterns.reduce(levelUp, run.levels) };
+    }
+  }
 }
 
 function withShop(run: RunState, update: (shop: ShopState, run: RunState) => RunState | null): RunState {
@@ -463,15 +592,23 @@ function withShop(run: RunState, update: (shop: ShopState, run: RunState) => Run
 const NEXT_KIND: Record<StageKind, StageKind> = { small: 'big', big: 'boss', boss: 'small', finale: 'small' };
 
 /** 장터 다음에 올 판. 오늘의 판은 마지막 요괴 다음이 끝판 */
-export function upcomingStage(run: RunState): { ante: number; kind: StageKind; boss: BossId | null; target: number } {
+export interface UpcomingStage {
+  ante: number;
+  kind: StageKind;
+  boss: BossId | null;
+  obstacle: ObstacleId | null;
+  target: number;
+}
+
+export function upcomingStage(run: RunState): UpcomingStage {
   const course = courseOf(run.mode);
   if (course.finale && run.stageKind === 'boss' && run.ante >= course.antes) {
-    return { ante: run.ante, kind: 'finale', boss: null, target: 0 };
+    return { ante: run.ante, kind: 'finale', boss: null, obstacle: null, target: 0 };
   }
   const ante = run.stageKind === 'boss' ? run.ante + 1 : run.ante;
   const kind = NEXT_KIND[run.stageKind];
   const boss = kind === 'boss' ? bossAt(run, ante) : null;
-  return { ante, kind, boss, target: stageTarget(ante, kind, boss, run.stake) };
+  return { ante, kind, boss, obstacle: obstacleFor(run, ante, kind), target: stageTarget(ante, kind, boss, run.stake) };
 }
 
 function nextStage(run: RunState): RunState {
@@ -494,7 +631,21 @@ function afterRelic(run: RunState): RunState {
 export function runReducer(run: RunState, action: RunAction): RunState {
   switch (action.type) {
     case 'begin':
-      return run.phase === 'preview' ? { ...run, phase: 'playing' } : run;
+      return run.phase === 'preview' ? { ...run, phase: 'playing', seen: seeStage(run.seen, run.stage) } : run;
+
+    // 판 1·판 2 건너뛰기: 보상을 받고 다음 판 미리보기로 (이 판 뒤의 장터도 건너뛴다)
+    case 'skip': {
+      if (!canSkip(run)) return run;
+      const back: RunState = {
+        ...run,
+        // 미리보기 동안 바꾼 부적 순서·비전서는 판이 들고 있으니 런으로 돌려받는다
+        talismans: run.stage.talismans,
+        consumables: run.stage.consumables,
+        levels: run.stage.levels,
+        history: [...run.history, 'skip'],
+      };
+      return nextStage(applySkipReward(back, skipRewardOf(run)));
+    }
 
     case 'stage': {
       if (run.phase !== 'playing') return run;
@@ -594,19 +745,32 @@ export function runReducer(run: RunState, action: RunAction): RunState {
         };
       });
 
-    // 🔖 도장: 가방 블록 1개 강화 / 🖌️ 먹: 가방 블록 1개 복사 (장터에서만)
+    // 🔖 도장: 가방 블록 2개까지 강화 (장터에서만)
     case 'stamp':
+      return withShop(run, () => {
+        const item = run.consumables[action.index];
+        const ids = new Set(action.bagIds);
+        const valid = ids.size >= 1 && ids.size <= STAMP_BLOCKS && [...ids].every((id) => run.bag.some((e) => e.id === id));
+        if (item?.kind !== 'stamp' || !valid) return null;
+        return {
+          ...run,
+          consumables: run.consumables.filter((_, i) => i !== action.index),
+          bag: run.bag.map((entry) => (ids.has(entry.id) ? { ...entry, enh: item.enh } : entry)),
+        };
+      });
+
+    // 🖌️ 먹: 가방 블록 1개를 강화까지 똑같이 하나 더 (장터에서만)
     case 'ink':
       return withShop(run, () => {
         const item = run.consumables[action.index];
         const target = run.bag.find((entry) => entry.id === action.bagId);
-        if (!item || item.kind !== action.type || !target) return null;
-        const consumables = run.consumables.filter((_, i) => i !== action.index);
-        if (item.kind === 'stamp') {
-          const bag = run.bag.map((entry) => (entry.id === target.id ? { ...entry, enh: item.enh } : entry));
-          return { ...run, consumables, bag };
-        }
-        return { ...run, consumables, bag: [...run.bag, { ...target, id: run.nextId }], nextId: run.nextId + 1 };
+        if (item?.kind !== 'ink' || !target) return null;
+        return {
+          ...run,
+          consumables: run.consumables.filter((_, i) => i !== action.index),
+          bag: [...run.bag, { ...target, id: run.nextId }],
+          nextId: run.nextId + 1,
+        };
       });
 
     case 'reroll':
@@ -619,7 +783,8 @@ export function runReducer(run: RunState, action: RunAction): RunState {
     case 'sell': {
       if (run.phase !== 'shop' && run.phase !== 'relic') return run;
       const talisman = run.talismans.find((t) => t.uid === action.uid);
-      if (!talisman) return run;
+      // 저주받은 부적은 팔 수 없다
+      if (!talisman || !canSell(talisman.id)) return run;
       return {
         ...run,
         gold: run.gold + sellPrice(talisman.id),

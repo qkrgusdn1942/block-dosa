@@ -59,6 +59,15 @@ export const ROCKS_BY_ANTE: ReadonlyArray<readonly [number, number]> = [
 ];
 /** 판마다 0~2개 */
 export const MAX_BONUS_CELLS = 2;
+/** 보너스 칸 종류 비율 → docs/05-blocks-and-cells.md */
+export const BONUS_WEIGHTS: ReadonlyArray<readonly ['gem' | 'star' | 'scroll', number]> = [
+  ['gem', 50],
+  ['star', 35],
+  ['scroll', 15],
+];
+
+/** 방해 칸 1종이 나오기 시작하는 고개 (판마다 무작위 1종) → docs/09-obstacles.md */
+export const OBSTACLE_FROM_ANTE: Record<'small' | 'big', number> = { small: 6, big: 4 };
 
 // 경제
 export const START_GOLD = 4;
@@ -69,14 +78,22 @@ export const INTEREST_STEP = 5;
 export const INTEREST_CAP = 5;
 export const GEM_GOLD = 3;
 
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
-export const RARITY_NAMES: Record<Rarity, string> = { common: '일반', uncommon: '고급', rare: '희귀', legendary: '전설' };
-export const TALISMAN_PRICE: Record<Rarity, number> = { common: 4, uncommon: 6, rare: 8, legendary: 20 };
-/** 장터 부적 등급 확률 */
+/** cursed = 저주받은 부적: 강하지만 대가가 있고 팔 수 없다 */
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary' | 'cursed';
+export const RARITY_NAMES: Record<Rarity, string> = {
+  common: '일반',
+  uncommon: '고급',
+  rare: '희귀',
+  legendary: '전설',
+  cursed: '저주',
+};
+export const TALISMAN_PRICE: Record<Rarity, number> = { common: 4, uncommon: 6, rare: 8, legendary: 20, cursed: 3 };
+/** 장터 부적 등급 확률 (저주받은 부적은 해금 뒤에만, 없으면 다른 등급으로) */
 export const SHOP_RARITY_WEIGHTS: ReadonlyArray<readonly [Rarity, number]> = [
-  ['common', 70],
-  ['uncommon', 25],
+  ['common', 67],
+  ['uncommon', 24],
   ['rare', 5],
+  ['cursed', 4],
 ];
 /** 요괴 유품 부적 등급 확률 (고급 이상) */
 export const RELIC_RARITY_WEIGHTS: ReadonlyArray<readonly [Rarity, number]> = [
@@ -86,18 +103,31 @@ export const RELIC_RARITY_WEIGHTS: ReadonlyArray<readonly [Rarity, number]> = [
 export const CONSUMABLE_PRICE = 3;
 /** 장터 소모품 등장 비율 */
 export const SHOP_CONSUMABLE_WEIGHTS: ReadonlyArray<readonly [Consumable['kind'], number]> = [
-  ['scroll', 40],
-  ['hammer', 15],
-  ['fan', 12],
-  ['broom', 10],
-  ['stamp', 15],
+  ['scroll', 38],
+  ['hammer', 14],
+  ['fan', 11],
+  ['broom', 9],
+  ['stamp', 14],
   ['ink', 8],
+  ['hourglass', 6],
 ];
 export const PACK_PRICE = 4;
 export const REMOVAL_PRICE = 3;
 export const REROLL_BASE = 3;
 export const SHOP_TALISMAN_COUNT = 2;
 export const SHOP_CONSUMABLE_COUNT = 2;
+
+/** 판 건너뛰기 보상 → docs/03-roguelike.md */
+export const SKIP_GOLD = 10;
+export const SKIP_FREE_REROLLS = 3;
+export const SKIP_STUDY_LEVELS = 3;
+
+/** 판마다 무료로 쓸 수 있는 되돌리기 (마지막에 놓은 블록 하나) */
+export const FREE_UNDOS = 1;
+/** 🖌️ 먹은 조금 싸다 */
+export const INK_PRICE = 2;
+/** 🔖 도장 하나로 강화하는 블록 수 */
+export const STAMP_BLOCKS = 2;
 export const PACK_CHOICES = 3;
 
 // 공덕 (메타 재화) → docs/06-incremental.md

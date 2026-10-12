@@ -106,8 +106,9 @@ describe('부적', () => {
 });
 
 describe('v1.0 부적', () => {
-  it('34종, 전설 3종', () => {
-    expect(TALISMAN_IDS).toHaveLength(34);
+  it('37종, 전설 3종, 저주 3종', () => {
+    expect(TALISMAN_IDS).toHaveLength(37);
+    expect(TALISMAN_IDS.filter((id) => TALISMANS[id].rarity === 'cursed')).toEqual(['demonTile', 'hahoe', 'goldJar']);
     expect(TALISMAN_IDS.filter((id) => TALISMANS[id].rarity === 'legendary')).toEqual(['pearl', 'crow', 'feather']);
   });
 
@@ -190,11 +191,12 @@ describe('v1.0 부적', () => {
       extraDraw: 1,
       doubleTimes: true,
       revive: true,
+      noInterest: false,
     });
   });
 
-  it('해금 조건이 있는 부적: 두꺼비, 눈사람, 도깨비 방망이', () => {
+  it('해금 조건이 있는 부적: 두꺼비, 눈사람, 도깨비 방망이, 저주 3종', () => {
     const locked = TALISMAN_IDS.filter((id) => TALISMANS[id].unlock);
-    expect(locked.sort()).toEqual(['club', 'snowman', 'toad']);
+    expect(locked.sort()).toEqual(['club', 'demonTile', 'goldJar', 'hahoe', 'snowman', 'toad']);
   });
 });

@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { BOARD_SIZE } from '../src/content/balance';
 import { cellIndex, emptyBoard } from '../src/core/board';
-import { createStage, drawPiece, hasRescue, isStuck, stageReducer, type StageState } from '../src/core/stage';
+import {
+  canPick,
+  canUndo,
+  createStage,
+  drawPiece,
+  hasRescue,
+  isStuck,
+  stageReducer,
+  type StageAction,
+  type StageState,
+} from '../src/core/stage';
 import type { Piece } from '../src/core/pieces';
 import { boardFrom, boardText, pieceOf, setup, stageWith, talisman, withCells } from './helpers';
 
@@ -240,20 +250,32 @@ describe('막힘과 소모품', () => {
     expect(stageReducer(stage, { type: 'giveUp' }).status).toBe('failed');
   });
 
-  it('🔨 망치: 칸 하나를 부수고 사라진다', () => {
-    const stage = stageWith({ board: boardFrom(['#R']), consumables: [{ kind: 'hammer' }] });
-    const next = stageReducer(stage, { type: 'useConsumable', index: 0, cell: 1 });
-    expect(boardText(next.board)[0]).toBe('#.......');
+  it('🔨 망치: 고른 칸을 가운데로 3×3을 부순다 (바위·방해 칸 포함)', () => {
+    const stage = stageWith({ board: boardFrom(['#R#L', '##', '', '#']), consumables: [{ kind: 'hammer' }] });
+    const next = stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(0, 1) });
+    expect(boardText(next.board).slice(0, 4)).toEqual(['...L....', '........', '........', '#.......']);
     expect(next.consumables).toHaveLength(0);
-    // 빈칸에는 못 쓴다
-    expect(stageReducer(stage, { type: 'useConsumable', index: 0, cell: 5 })).toBe(stage);
+    expect(next.score).toBe(0);
+    // 부술 게 없는 자리에는 못 쓴다
+    expect(stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(5, 5) })).toBe(stage);
   });
 
-  it('🌬️ 부채: 손의 블록 하나를 돌린다', () => {
+  it('🌬️ 부채: 이번 판 동안 블록을 돌릴 수 있다 (이미 돌릴 수 있으면 못 씀)', () => {
     const stage = stageWith({ consumables: [{ kind: 'fan' }], hand: hand(pieceOf('bar3'), dot(), null) });
-    const next = stageReducer(stage, { type: 'useConsumable', index: 0, slot: 0 });
-    expect(next.hand[0]?.rows).toBe(3);
+    const next = stageReducer(stage, { type: 'useConsumable', index: 0 });
+    expect(next.rotation).toBe(true);
     expect(next.consumables).toHaveLength(0);
+    expect(stageReducer(next, { type: 'rotate', slot: 0 }).hand[0]?.rows).toBe(3);
+    const spinning = { ...stage, rotation: true };
+    expect(stageReducer(spinning, { type: 'useConsumable', index: 0 })).toBe(spinning);
+  });
+
+  it('⌛ 모래시계: 이번 판 핸드 +1', () => {
+    const stage = stageWith({ consumables: [{ kind: 'hourglass' }] });
+    const next = stageReducer(stage, { type: 'useConsumable', index: 0 });
+    expect(next.rules.hands).toBe(stage.rules.hands + 1);
+    expect(next.consumables).toHaveLength(0);
+    expect(next.toast?.text).toContain('핸드 +1');
   });
 
   it('📖 비전서: 족보 레벨 +1', () => {
@@ -361,16 +383,68 @@ describe('v1.0 요괴', () => {
     expect(cross.score).toBe((35 + 15) * 3);
   });
 
-  it('🐅 장산범: 핸드마다 블록 하나가 가려지고, 집어 들면 드러난다', () => {
-    const stage = createStage(setup({ ante: 2, kind: 'boss', boss: 'jangsanbeom' }));
-    expect(stage.hand.filter((p) => p?.hidden)).toHaveLength(1);
-    const slot = stage.hand.findIndex((p) => p?.hidden);
-    const revealed = stageReducer(stage, { type: 'reveal', slot });
-    expect(revealed.hand[slot]?.hidden).toBeUndefined();
-    expect(revealed.hand[slot]?.cells).toEqual(stage.hand[slot]?.cells);
-    // 다음 핸드도 하나가 가려진다
-    const ready = { ...revealed, board: emptyBoard(), bonus: {}, hand: hand(dot(), null, null) };
-    expect(place(ready, 0, 4, 4).hand.filter((p) => p?.hidden)).toHaveLength(1);
+  describe('🐅 장산범', () => {
+    const tiger = (overrides: Partial<StageState> = {}): StageState => ({
+      ...createStage(setup({ ante: 2, kind: 'boss', boss: 'jangsanbeom' })),
+      board: emptyBoard(),
+      bonus: {},
+      ...overrides,
+    });
+    const hidden = (uid = 1002): Piece => ({ ...dot(uid), hidden: true });
+
+    it('핸드마다 블록 하나가 가려진다. 가린 채로 버릴 수 있고, 새로 뽑은 블록은 안 가려진다', () => {
+      const stage = createStage(setup({ ante: 2, kind: 'boss', boss: 'jangsanbeom' }));
+      expect(stage.hand.filter((p) => p?.hidden)).toHaveLength(1);
+      const slot = stage.hand.findIndex((p) => p?.hidden);
+      const discarded = stageReducer(stage, { type: 'discard', slot });
+      expect(discarded.discardsLeft).toBe(stage.discardsLeft - 1);
+      expect(discarded.hand.some((p) => p?.hidden)).toBe(false);
+      // 다음 핸드도 하나가 가려진다
+      expect(place(tiger({ hand: hand(dot(), null, null) }), 0, 4, 4).hand.filter((p) => p?.hidden)).toHaveLength(1);
+    });
+
+    it('?는 핸드의 마지막 블록으로만 집는다: 그 전엔 드러내기·놓기·돌리기·보관 모두 안 됨', () => {
+      const stage = tiger({ hand: hand(dot(), dot(1001), hidden()), rotation: true, stashEnabled: true });
+      expect(canPick(stage, 0)).toBe(true);
+      expect(canPick(stage, 2)).toBe(false);
+      const blocked: StageAction[] = [
+        { type: 'reveal', slot: 2 },
+        { type: 'place', slot: 2, row: 0, col: 0 },
+        { type: 'rotate', slot: 2 },
+        { type: 'stash', slot: 2 },
+      ];
+      for (const action of blocked) expect(stageReducer(stage, action)).toBe(stage);
+      // 다른 두 블록을 놓으면 풀리고, 집으면 드러난다
+      const last = place(place(stage, 0, 0, 0), 1, 7, 7);
+      expect(canPick(last, 2)).toBe(true);
+      const revealed = stageReducer(last, { type: 'reveal', slot: 2 });
+      expect(revealed.hand[2]?.hidden).toBeUndefined();
+      expect(revealed.hand[2]?.cells).toEqual(stage.hand[2]?.cells);
+    });
+
+    it('다른 블록을 놓을 데가 없으면 ?가 바로 풀린다 (가려진 탓에 막히지 않게)', () => {
+      // 빈칸이 (0, 0) 하나뿐: 막대2는 못 놓고 가려진 점은 놓을 수 있다
+      const full = boardFrom(Array.from({ length: BOARD_SIZE }, (_, r) => (r === 0 ? '.#######' : '########')));
+      const stage = tiger({ board: full, hand: hand(pieceOf('bar2'), null, hidden()) });
+      expect(canPick(stage, 2)).toBe(true);
+      expect(isStuck(stage)).toBe(false);
+    });
+
+    it('🎁 덤(4개)이면 두 개를 놓은 뒤 남은 블록과 ? 중에서 마지막을 고른다', () => {
+      const stage = tiger({ hand: hand(dot(), dot(1001), dot(1003), hidden()) });
+      expect(canPick(stage, 3)).toBe(false);
+      const two = place(place(stage, 0, 0, 0), 1, 7, 7);
+      expect(canPick(two, 2)).toBe(true);
+      expect(canPick(two, 3)).toBe(true);
+    });
+
+    it('?를 집으면 바로 앞 블록은 되돌릴 수 없다 (모양을 보고 다시 놓지 못하게)', () => {
+      const last = place(place(tiger({ hand: hand(dot(), dot(1001), hidden()) }), 0, 0, 0), 1, 7, 7);
+      expect(canUndo(last)).toBe(true);
+      const looked = stageReducer(last, { type: 'reveal', slot: 2 });
+      expect(canUndo(looked)).toBe(false);
+      expect(looked.undoLeft).toBe(1);
+    });
   });
 });
 
@@ -442,20 +516,34 @@ describe('🎁 덤과 🍡 시루떡', () => {
 });
 
 describe('🧹 빗자루', () => {
-  it('고른 칸의 가로줄이나 세로줄을 비운다 (바위 포함, 점수 없음)', () => {
+  it('고른 칸의 가로줄이나 세로줄을 지우고 "한 줄" 점수를 받는다 (바위도 한 번에)', () => {
     const stage = stageWith({ board: boardFrom(['##R#', '#', '#']), consumables: [{ kind: 'broom' }] });
     const row = stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(0, 2), axis: 'row' });
     expect(boardText(row.board).slice(0, 3)).toEqual(['........', '#.......', '#.......']);
-    expect(row.score).toBe(0);
+    // 한 줄 10칩 + 블록 3칸 = 13, 연속 1
+    expect(row.score).toBe(13);
+    expect(row.streak).toBe(1);
+    expect(row.lastClear).toMatchObject({ swept: true, shifted: false });
     expect(row.consumables).toHaveLength(0);
     const col = stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(1, 0), axis: 'col' });
     expect(boardText(col.board).slice(0, 3)).toEqual(['.#R#....', '........', '........']);
+    expect(col.score).toBe(13);
     // 빈 줄에는 못 쓴다
     expect(stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(5, 5), axis: 'row' })).toBe(stage);
   });
 
-  it('막혔을 때 쓸 수 있는 소모품으로 친다', () => {
+  it('부적·강화 칸도 똑같이 적용되고, 목표를 넘기면 판 클리어', () => {
+    const board = withCells(boardFrom(['########', '#']), { [cellIndex(0, 3)]: { kind: 'block', shape: 'dot', enh: 'fire' } });
+    const stage = stageWith({ board, consumables: [{ kind: 'broom' }], talismans: [talisman('lamp', 1)], score: 140 });
+    const next = stageReducer(stage, { type: 'useConsumable', index: 0, cell: 0, axis: 'row' });
+    // (10 + 8) × (1 + 불꽃 2 + 호롱불 4)
+    expect(next.score).toBe(140 + 18 * 7);
+    expect(next.status).toBe('cleared');
+  });
+
+  it('막혔을 때 쓸 수 있는 소모품으로 친다 (모래시계는 아님)', () => {
     expect(hasRescue(stageWith({ consumables: [{ kind: 'broom' }] }))).toBe(true);
+    expect(hasRescue(stageWith({ consumables: [{ kind: 'hourglass' }] }))).toBe(false);
     expect(hasRescue(stageWith({ consumables: [{ kind: 'stamp', enh: 'gold' }, { kind: 'ink' }] }))).toBe(false);
   });
 });
@@ -504,5 +592,65 @@ describe('부적이 보는 판 상황', () => {
   it('🐸 두꺼비: 대청소하면 +$5', () => {
     const stage = stageWith({ board: boardFrom(['.#######']), talismans: [talisman('toad', 1)], hand: hand(dot(), null, null) });
     expect(place(stage, 0, 0, 0).goldEarned).toBe(5);
+  });
+});
+
+describe('📜 두루마리 칸', () => {
+  it('덮은 블록이 지워지면 비전서 1장 (소모품 칸이 비어 있을 때만)', () => {
+    const ready = { board: boardFrom(['.#######', '#']), bonus: { 0: 'scroll' as const }, hand: hand(dot(), null, null) };
+    const next = place(stageWith(ready), 0, 0, 0);
+    expect(next.consumables).toHaveLength(1);
+    expect(next.consumables[0].kind).toBe('scroll');
+    expect(next.lastClear?.scrolls).toBe(1);
+    const full = stageWith({ ...ready, consumables: [{ kind: 'hammer' }, { kind: 'fan' }] });
+    expect(place(full, 0, 0, 0).consumables).toHaveLength(2);
+  });
+
+  it('보너스 칸은 보석 50%, 별 35%, 두루마리 15%', () => {
+    const counts: Record<string, number> = {};
+    for (let i = 0; i < 3000; i++) {
+      for (const kind of Object.values(createStage(setup({ seed: `B${i}` })).bonus)) counts[kind] = (counts[kind] ?? 0) + 1;
+    }
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    expect(counts.gem / total).toBeCloseTo(0.5, 1);
+    expect(counts.star / total).toBeCloseTo(0.35, 1);
+    expect(counts.scroll / total).toBeCloseTo(0.15, 1);
+  });
+});
+
+describe('↩ 되돌리기 (판마다 1번 무료)', () => {
+  const ready = () =>
+    stageWith({ board: boardFrom(['.#######', '#']), hand: hand(dot(), dot(1001), dot(1002)) });
+
+  it('마지막에 놓은 블록을 되돌린다 (점수·판·손 모두), 판마다 1번', () => {
+    const before = ready();
+    expect(before.undoLeft).toBe(1);
+    const placed = place(before, 0, 0, 0);
+    expect(placed.score).toBe(18);
+    expect(canUndo(placed)).toBe(true);
+    const undone = stageReducer(placed, { type: 'undo' });
+    expect(undone.score).toBe(0);
+    expect(undone.board).toEqual(before.board);
+    expect(undone.hand).toEqual(before.hand);
+    expect(undone.undoLeft).toBe(0);
+    expect(undone.toast?.text).toContain('되돌렸어요');
+    // 다시 놓아도 이번 판에는 더 못 되돌린다
+    const again = place(undone, 0, 0, 0);
+    expect(canUndo(again)).toBe(false);
+    expect(stageReducer(again, { type: 'undo' })).toBe(again);
+  });
+
+  it('놓은 뒤 다른 걸 하면 못 되돌린다', () => {
+    const placed = place(ready(), 0, 0, 0);
+    const discarded = stageReducer(placed, { type: 'discard', slot: 1 });
+    expect(discarded.undo).toBeNull();
+    expect(stageReducer(discarded, { type: 'undo' })).toBe(discarded);
+    expect(stageReducer(ready(), { type: 'undo' }).undoLeft).toBe(1);
+  });
+
+  it('되돌릴 수 있으면 막혀도 바로 끝나지 않는다', () => {
+    const stage = stageWith({ hand: hand(dot(), dot(1001), null) });
+    expect(hasRescue(stage)).toBe(false);
+    expect(hasRescue(place(stage, 0, 4, 4))).toBe(true);
   });
 });

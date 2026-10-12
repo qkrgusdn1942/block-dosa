@@ -3,15 +3,16 @@ import type { BagType } from '../content/bags';
 import { MAX_STAKE } from '../content/stakes';
 import type { UnlockRecords } from '../content/unlocks';
 import { NO_PERKS, UPGRADE_BY_ID, UPGRADES, type RunPerks, type UpgradeId } from '../content/upgrades';
-import { dailyDateOf } from './daily';
-import { courseOf, type RunState } from './run';
+import { dailyDateOf, weeklyDateOf } from './daily';
+import type { NumberStyle } from './format';
+import { courseOf, NOTHING_SEEN, type RunState, type Seen } from './run';
 import { shareText } from './share';
 
 /** 런 밖에서 계속 남는 것: 공덕, 수련, 기록 → docs/06-incremental.md */
 
 export const PROFILE_VERSION = 1;
 
-/** 오늘의 판 공식 기록 (첫 도전) */
+/** 오늘의 판·주간 도전 공식 기록 (첫 도전) */
 export interface DailyResult {
   /** 끝판까지 마쳤는지 */
   completed: boolean;
@@ -24,11 +25,22 @@ export interface DailyResult {
 }
 
 export interface DailyRecord {
+  /** 오늘의 판은 그 날짜, 주간 도전은 그 주 월요일 */
   date: string;
-  /** 이날 시작한 오늘의 판 수. 첫 번째만 공식 */
+  /** 그날(그 주)에 시작한 도전 수. 첫 번째만 공식 */
   attempts: number;
   official: DailyResult | null;
 }
+
+/** 설정 → docs/11-ui-ux.md */
+export interface Settings {
+  /** 한국식(1.23만) / 지수(1.23e4) */
+  numberStyle: NumberStyle;
+  /** 아래 버튼 줄 좌우 반전 */
+  leftHand: boolean;
+}
+
+export const DEFAULT_SETTINGS: Settings = { numberStyle: 'korean', leftHand: false };
 
 /** 새 런을 시작할 때 고르는 것 */
 export interface RunSetup {
@@ -56,8 +68,14 @@ export interface Profile {
   lastSetup: RunSetup | null;
   /** 공덕을 이미 받은 마지막 런. 같은 런을 두 번 정산하지 않게 */
   lastSettledRun: string | null;
-  /** 가장 최근 날짜의 오늘의 판 */
+  /** 가장 최근 날짜의 오늘의 판 / 가장 최근 주의 주간 도전 */
   daily: DailyRecord | null;
+  weekly: DailyRecord | null;
+  /** 도감: 지금까지 끝난 런에서 만난 것 */
+  collection: Seen;
+  settings: Settings;
+  /** 마지막으로 본 변경 사항 버전 (새 버전이면 처음 화면에 NEW) */
+  seenVersion: string | null;
 }
 
 export const newProfile = (): Profile => ({
@@ -74,6 +92,10 @@ export const newProfile = (): Profile => ({
   lastSetup: null,
   lastSettledRun: null,
   daily: null,
+  weekly: null,
+  collection: NOTHING_SEEN,
+  settings: DEFAULT_SETTINGS,
+  seenVersion: null,
 });
 
 /**
@@ -81,12 +103,25 @@ export const newProfile = (): Profile => ({
  * 지난 날짜(코드로 들어온 예전 오늘의 판)는 늘 연습이고 기록도 건드리지 않는다.
  */
 export function startDaily(profile: Profile, date: string, today: string): { profile: Profile; official: boolean } {
-  if (date !== today) return { profile, official: false };
-  const record = profile.daily?.date === date ? profile.daily : { date, attempts: 0, official: null };
-  return {
-    profile: { ...profile, daily: { ...record, attempts: record.attempts + 1 } },
-    official: record.attempts === 0,
-  };
+  const started = startChallenge(profile.daily, date, today);
+  return { profile: started ? { ...profile, daily: started.record } : profile, official: started?.official ?? false };
+}
+
+/** 주간 도전도 같은 방식: 이번 주의 첫 도전만 공식 */
+export function startWeekly(profile: Profile, monday: string, thisMonday: string): { profile: Profile; official: boolean } {
+  const started = startChallenge(profile.weekly, monday, thisMonday);
+  return { profile: started ? { ...profile, weekly: started.record } : profile, official: started?.official ?? false };
+}
+
+/** 지난 날짜(주)는 기록을 건드리지 않는다 (null) */
+function startChallenge(
+  record: DailyRecord | null,
+  date: string,
+  current: string,
+): { record: DailyRecord; official: boolean } | null {
+  if (date !== current) return null;
+  const today = record?.date === date ? record : { date, attempts: 0, official: null };
+  return { record: { ...today, attempts: today.attempts + 1 }, official: today.attempts === 0 };
 }
 
 export const upgradeLevel = (profile: Profile, id: UpgradeId) => profile.upgrades[id] ?? 0;
@@ -170,22 +205,35 @@ export function settleRun(profile: Profile, run: RunState, runId: string): Profi
     // 난이도 단계는 새 런으로만 연다 (코드 도전은 늘 1단계)
     stakeCleared: ending && run.mode === 'normal' ? Math.max(profile.stakeCleared, run.stake) : profile.stakeCleared,
     lastSettledRun: runId,
-    daily: recordDaily(profile.daily, run),
+    daily: run.mode === 'daily' ? recordChallenge(profile.daily, run, dailyDateOf(run.seed)) : profile.daily,
+    weekly: run.mode === 'weekly' ? recordChallenge(profile.weekly, run, weeklyDateOf(run.seed)) : profile.weekly,
+    collection: mergeSeen(profile.collection, run.seen),
   };
 }
 
-/** 공식 도전이 끝나면 그날의 기록으로 남긴다 (한 번만) */
-function recordDaily(daily: DailyRecord | null, run: RunState): DailyRecord | null {
-  const date = dailyDateOf(run.seed);
-  if (run.mode !== 'daily' || !run.official || !daily || daily.date !== date || daily.official) return daily;
+/** 공식 도전이 끝나면 그날(그 주)의 기록으로 남긴다 (한 번만) */
+function recordChallenge(record: DailyRecord | null, run: RunState, date: string | null): DailyRecord | null {
+  if (!run.official || !record || record.date !== date || record.official) return record;
   const completed = run.phase === 'ending';
   return {
-    ...daily,
+    ...record,
     official: {
       completed,
       score: completed ? run.stage.score : 0,
       reached: completed ? '끝판 완주' : `고개 ${run.ante} · ${STAGE_NAMES[run.stageKind]}`,
       text: shareText(run),
     },
+  };
+}
+
+/** 도감에 이번 런에서 만난 것을 더한다 */
+export function mergeSeen(a: Seen, b: Seen): Seen {
+  const union = <T>(x: readonly T[], y: readonly T[]) => [...new Set([...x, ...y])];
+  return {
+    talismans: union(a.talismans, b.talismans),
+    bosses: union(a.bosses, b.bosses),
+    obstacles: union(a.obstacles, b.obstacles),
+    shapes: union(a.shapes, b.shapes),
+    enhancements: union(a.enhancements, b.enhancements),
   };
 }

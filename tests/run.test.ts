@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TALISMAN_PRICE } from '../src/content/balance';
 import { SHAPES } from '../src/content/blocks';
 import { REGULAR_BOSSES } from '../src/content/bosses';
 import { TALISMANS } from '../src/content/talismans';
@@ -7,11 +8,13 @@ import { emptyBoard } from '../src/core/board';
 import {
   anteBase,
   bossAt,
+  canSkip,
   courseOf,
   createRun,
   rollBosses,
   rollRelics,
   runReducer,
+  skipRewardOf,
   stageTarget,
   talismanSlots,
   upcomingStage,
@@ -19,6 +22,10 @@ import {
   type RunStart,
   type RunState,
 } from '../src/core/run';
+import type { SkipRewardId } from '../src/content/skips';
+import { consumablePrice } from '../src/core/shop';
+import { WEEKLY_RULE_BY_ID } from '../src/content/weekly';
+import { weeklyRuleOf } from '../src/core/daily';
 import type { StageState } from '../src/core/stage';
 import { boardFrom, pieceOf, talisman } from './helpers';
 
@@ -424,7 +431,7 @@ describe('난이도 단계', () => {
 
   it('진인(7): 장터 가격 +$1', () => {
     const shop = { ...runReducer(clearStage(at(7)), { type: 'collect' }), gold: 20 };
-    expect(shop.shop!.consumables.every((offer) => offer.price === 4)).toBe(true);
+    expect(shop.shop!.consumables.every((offer) => offer.price === consumablePrice(offer.item) + 1)).toBe(true);
     expect(runReducer(shop, { type: 'buyPack' }).gold).toBe(15);
   });
 });
@@ -490,15 +497,16 @@ describe('v1.0 유품과 장터', () => {
     }
   });
 
-  it('🔖 도장: 장터에서 가방 블록 1개를 강화한다', () => {
+  it('🔖 도장: 장터에서 가방 블록 2개까지 강화한다', () => {
     const run: RunState = { ...inShop(10), consumables: [{ kind: 'stamp', enh: 'gold' }] };
-    const stamped = runReducer(run, { type: 'stamp', index: 0, bagId: 5 });
-    expect(stamped.bag.find((b) => b.id === 5)?.enh).toBe('gold');
+    const stamped = runReducer(run, { type: 'stamp', index: 0, bagIds: [5, 6] });
+    expect(stamped.bag.filter((b) => b.enh === 'gold').map((b) => b.id)).toEqual([5, 6]);
     expect(stamped.consumables).toHaveLength(0);
-    expect(runReducer(run, { type: 'stamp', index: 0, bagId: 999 })).toBe(run);
+    expect(runReducer(run, { type: 'stamp', index: 0, bagIds: [5, 999] })).toBe(run);
+    expect(runReducer(run, { type: 'stamp', index: 0, bagIds: [1, 2, 3] })).toBe(run);
     expect(runReducer(run, { type: 'ink', index: 0, bagId: 5 })).toBe(run);
     const playing: RunState = { ...run, phase: 'playing' };
-    expect(runReducer(playing, { type: 'stamp', index: 0, bagId: 5 })).toBe(playing);
+    expect(runReducer(playing, { type: 'stamp', index: 0, bagIds: [5] })).toBe(playing);
   });
 
   it('🖌️ 먹: 가방 블록 1개를 강화까지 똑같이 하나 더', () => {
@@ -559,5 +567,123 @@ describe('v1.0 판 결과', () => {
     const run = createRun('GLASS1');
     const done = clearStage(run, { bag: run.stage.bag.filter((b) => b.id !== 3) });
     expect(done.bag).toHaveLength(17);
+  });
+});
+
+describe('판 건너뛰기', () => {
+  /** 고개 1 판 1을 건너뛰면 그 보상이 나오는 시드 */
+  function seedFor(reward: SkipRewardId): string {
+    for (let i = 0; i < 500; i++) {
+      if (skipRewardOf({ seed: `SKIP${i}`, ante: 1, stageKind: 'small' }) === reward) return `SKIP${i}`;
+    }
+    throw new Error(reward);
+  }
+  const skip = (run: RunState) => runReducer(run, { type: 'skip' });
+
+  it('판 1·판 2 미리보기에서만: 보상을 받고 다음 판 미리보기로, 기록은 ⬜', () => {
+    const run = createRun(seedFor('gold'));
+    expect(canSkip(run)).toBe(true);
+    const next = skip(run);
+    expect(next).toMatchObject({ ante: 1, stageKind: 'big', phase: 'preview', gold: run.gold + 10 });
+    expect(next.history).toEqual(['skip']);
+    expect(next.stats.stagesCleared).toBe(0);
+    const boss = skip(next);
+    expect(boss.stageKind).toBe('boss');
+    expect(canSkip(boss)).toBe(false);
+    expect(skip(boss)).toBe(boss);
+    expect(skip({ ...run, phase: 'playing' }).phase).toBe('playing');
+  });
+
+  it('미리보기 동안 바꾼 부적 순서·비전서는 그대로 들고 간다', () => {
+    const run = createRun(seedFor('gold'));
+    const withScroll: RunState = { ...run, stage: { ...run.stage, consumables: [], levels: { ...run.levels, quad: 3 } } };
+    expect(skip(withScroll).levels.quad).toBe(3);
+  });
+
+  it('공짜 팩·반값·공짜 리롤은 다음 장터에서 쓰고 사라진다', () => {
+    const toShop = (run: RunState) => runReducer(clearStage(skip(run)), { type: 'collect' });
+    const pack = toShop(createRun(seedFor('freePack')));
+    expect(pack.shop?.freePack).toBe(true);
+    const bought = runReducer({ ...pack, gold: 0 }, { type: 'buyPack' });
+    expect(bought.shop?.pack.bought).toBe(true);
+
+    const sale = toShop(createRun(seedFor('discount')));
+    for (const offer of sale.shop!.talismans) {
+      expect(offer.price).toBe(Math.max(1, Math.floor(TALISMAN_PRICE[TALISMANS[offer.item].rarity] / 2)));
+    }
+
+    const rerolls = toShop(createRun(seedFor('rerolls')));
+    expect(rerolls.shop?.freeRerolls).toBe(3);
+    expect(rerolls.vouchers).toEqual({ freePack: false, discount: false, freeRerolls: 0 });
+  });
+
+  it('족보 공부: 무작위 족보 3개 레벨 +1', () => {
+    const run = createRun(seedFor('study'));
+    const levels = Object.values(skip(run).levels);
+    expect(levels.filter((level) => level === 2)).toHaveLength(3);
+  });
+});
+
+describe('저주받은 부적', () => {
+  it('팔 수 없다', () => {
+    const run = { ...inShop(10), talismans: [talisman('demonTile', 9)] };
+    expect(runReducer(run, { type: 'sell', uid: 9 })).toBe(run);
+  });
+
+  it('귀면와: 핸드 −1, 하회탈: 버리기 −2', () => {
+    const run = createRun('CURSE1');
+    const withTile = runReducer(clearStage(run, { talismans: [talisman('demonTile', 9)] }), { type: 'collect' });
+    const next = runReducer(withTile, { type: 'next' });
+    expect(next.stage.rules.hands).toBe(4);
+    const masked = runReducer(runReducer(clearStage(run, { talismans: [talisman('hahoe', 9)] }), { type: 'collect' }), { type: 'next' });
+    expect(masked.stage.rules.discards).toBe(0);
+  });
+
+  it('금단지: 판 클리어 +$8, 이자는 없다', () => {
+    const done = clearStage({ ...createRun('CURSE1'), gold: 50 }, { talismans: [talisman('goldJar', 9)] });
+    expect(done.reward?.some((line) => line.label.includes('금단지') && line.gold === 8)).toBe(true);
+    expect(done.reward?.some((line) => line.label.includes('이자 없음'))).toBe(true);
+    expect(done.reward?.some((line) => line.label.startsWith('이자 ('))).toBe(false);
+  });
+});
+
+describe('주간 도전', () => {
+  const weekly = (monday: string) => createRun(`W${monday}`, { mode: 'weekly' });
+
+  it('오늘의 판처럼 고개 3 + 끝판, 그 주의 규칙이 붙는다', () => {
+    const run = weekly('20261012');
+    expect(courseOf(run.mode)).toEqual({ antes: 3, finale: true });
+    expect(run.rule).toBe(weeklyRuleOf('20261012').id);
+  });
+
+  it('규칙마다: 막대 잔치 가방, 단출한 짐 부적 칸, 급한 길 핸드·버리기, 바람 부는 날 바람개비', () => {
+    const find = (id: string) => {
+      for (let week = 0; week < 7; week++) {
+        const day = new Date(Date.UTC(2026, 0, 5 + week * 7));
+        const monday = `${day.getUTCFullYear()}${String(day.getUTCMonth() + 1).padStart(2, '0')}${String(day.getUTCDate()).padStart(2, '0')}`;
+        if (weeklyRuleOf(monday).id === id) return weekly(monday);
+      }
+      throw new Error(id);
+    };
+    expect(find('barsOnly').bag.every((b) => SHAPES[b.shape].kind === 'bar' || b.shape === 'dot')).toBe(true);
+    expect(talismanSlots(find('lightPack'))).toBe(3);
+    expect(find('lightPack').gold).toBe(4 + 10);
+    expect(find('hurry').stage.rules).toMatchObject({ hands: 4, discards: 5 });
+    expect(find('windy').talismans.map((t) => t.id)).toEqual(['pinwheel']);
+    expect(find('chaos').bag.every((b) => b.enh)).toBe(true);
+    expect(find('hazards').stage.obstacle).not.toBeNull();
+    expect(WEEKLY_RULE_BY_ID.rocky.extraRocks).toBe(3);
+  });
+});
+
+describe('도감 기록', () => {
+  it('판을 시작하면 만난 요괴·방해 칸·가방 블록을, 부적을 얻으면 그 부적을 적어 둔다', () => {
+    const run = createRun('SEEN01', { start: { ante: 2, kind: 'boss', boss: 'gumiho' } });
+    const begun = runReducer(run, { type: 'begin' });
+    expect(begun.seen.bosses).toEqual(['gumiho']);
+    expect(begun.seen.shapes).toContain('bar5');
+    const shop = runReducer(clearStage(createRun('SEEN01')), { type: 'collect' });
+    const bought = runReducer({ ...shop, gold: 50 }, { type: 'buyTalisman', slot: 0 });
+    expect(bought.seen.talismans).toContain(shop.shop!.talismans[0].item);
   });
 });

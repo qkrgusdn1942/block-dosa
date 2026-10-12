@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newProfile } from '../src/core/profile';
 import { createRun, runReducer, type RunAction, type RunState } from '../src/core/run';
 import { createSaveStore, SAVE_VERSION } from '../src/save/storage';
+import { decodeSave, encodeSave } from '../src/save/transfer';
 
 /** 테스트용 localStorage */
 function memoryStorage() {
@@ -124,6 +125,25 @@ describe('저장과 이어하기', () => {
     expect(moved.stage.stats.placed).toBe(1);
   });
 
+  it('v1.0 저장(버전 3)은 v1.1 구조로 올려서 이어할 수 있다', () => {
+    const storage = memoryStorage();
+    const store = createSaveStore(storage);
+    const old = JSON.parse(JSON.stringify(createRun('SAVE03')));
+    for (const key of ['rule', 'vouchers', 'seen']) delete old[key];
+    for (const key of ['obstacle', 'consumableSlots', 'undo']) delete old.stage[key];
+    old.talismans = [{ uid: 50, id: 'lamp', counter: 0 }];
+    storage.setItem('block-dosa:run', JSON.stringify({ version: 3, id: 'v10-run', savedAt: 1, run: old }));
+
+    const loaded = store.loadRun()!;
+    expect(loaded.version).toBe(SAVE_VERSION);
+    expect(loaded.run).toMatchObject({ rule: null, vouchers: { freePack: false, discount: false, freeRerolls: 0 } });
+    expect(loaded.run.seen.talismans).toEqual(['lamp']);
+    expect(loaded.run.stage).toMatchObject({ obstacle: null, consumableSlots: 2, undo: null });
+    const playing = runReducer(loaded.run, { type: 'begin' });
+    const slot = playing.stage.hand.findIndex(Boolean);
+    expect(runReducer(playing, { type: 'stage', action: { type: 'place', slot, row: 0, col: 0 } }).stage.stats.placed).toBe(1);
+  });
+
   it('버전이 다르거나 깨진 저장은 무시한다', () => {
     const storage = memoryStorage();
     const store = createSaveStore(storage);
@@ -158,5 +178,40 @@ describe('저장과 이어하기', () => {
     expect(store.loadRun()).toBeNull();
     expect(store.loadProfile()).toEqual(newProfile());
     expect(createSaveStore(null).loadRun()).toBeNull();
+  });
+});
+
+describe('세이브 코드', () => {
+  it('프로필과 진행 중인 런을 코드로 옮긴다', async () => {
+    const from = createSaveStore(memoryStorage());
+    from.saveProfile({ ...newProfile(), merit: 321, settings: { numberStyle: 'exponent', leftHand: true } });
+    from.saveRun('moving-run', createRun('MOVE01'));
+    const code = await encodeSave(from.exportRaw());
+    expect(code.startsWith('BDS1.')).toBe(true);
+
+    const to = createSaveStore(memoryStorage());
+    const data = await decodeSave(`  ${code.slice(0, 20)}\n${code.slice(20)}  `);
+    expect(data).not.toBeNull();
+    expect(to.importRaw(data!)).toBe(true);
+    expect(to.loadProfile()).toMatchObject({ merit: 321, settings: { numberStyle: 'exponent', leftHand: true } });
+    expect(to.loadRun()?.run.seed).toBe('MOVE01');
+  });
+
+  it('깨진 코드는 아무것도 바꾸지 않는다', async () => {
+    expect(await decodeSave('BDS1.깨진코드')).toBeNull();
+    expect(await decodeSave('K7Q2MX')).toBeNull();
+    const store = createSaveStore(memoryStorage());
+    store.saveProfile({ ...newProfile(), merit: 5 });
+    expect(store.importRaw({ profile: '{깨짐', run: null })).toBe(false);
+    expect(store.loadProfile().merit).toBe(5);
+  });
+
+  it('예전 프로필은 설정·도감을 기본값 위에 덮어서 읽는다', () => {
+    const storage = memoryStorage();
+    storage.setItem('block-dosa:profile', JSON.stringify({ version: 1, merit: 7, settings: { leftHand: true } }));
+    const profile = createSaveStore(storage).loadProfile();
+    expect(profile.settings).toEqual({ numberStyle: 'korean', leftHand: true });
+    expect(profile.collection.talismans).toEqual([]);
+    expect(profile.merit).toBe(7);
   });
 });

@@ -161,7 +161,7 @@ const defs: BossDef[] = [
     id: 'jangsanbeom',
     name: '장산범',
     emoji: '🐅',
-    rule: '핸드마다 블록 1개는 집어 들기 전까지 모양이 ?로 가려진다',
+    rule: '핸드마다 블록 1개가 ?로 가려진다. ?는 그 핸드의 마지막 블록으로만 집을 수 있다 (다른 블록을 놓을 데가 없으면 풀림)',
     minAnte: 2,
     targetMult: 2,
     onHandDraw: (stage, rng) => {

@@ -1480,6 +1480,445 @@ button:disabled {
   }
 }
 
+/* 방해 칸 → docs/09-obstacles.md */
+.cell.hazard {
+  box-shadow:
+    inset 0 -3px 0 rgb(0 0 0 / 0.25),
+    inset 0 2px 0 rgb(255 255 255 / 0.15);
+}
+
+.cell.lock {
+  background: #5b5f6b;
+}
+
+.cell.moss {
+  background: #5f8f4e;
+}
+
+.cell.bomb {
+  background: #6b3b35;
+}
+
+.cell.bomb.ticking {
+  animation: ticking 700ms ease-in-out infinite alternate;
+}
+
+@keyframes ticking {
+  to {
+    background: #b23a2c;
+  }
+}
+
+.hazard-mark {
+  position: relative;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.hazard-mark .fuse {
+  position: absolute;
+  right: -0.55em;
+  bottom: -0.35em;
+  min-width: 1.1em;
+  padding: 0 0.15em;
+  border-radius: 99px;
+  background: #fff;
+  color: #b23a2c;
+  font-size: 0.55em;
+  font-weight: 900;
+  text-align: center;
+}
+
+/* 🧊 언 칸: 얼음 덮개 (강화 표시는 ::after라서 ::before를 쓴다) */
+.cell.frozen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(150deg, rgb(235 248 255 / 0.85), rgb(170 215 240 / 0.55));
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.9);
+  pointer-events: none;
+}
+
+.burst.lock,
+.burst.moss,
+.burst.bomb {
+  background: var(--rock);
+}
+
+.boss-card.hazard-card {
+  background: #4a5a3f;
+}
+
+/* 점수 줄을 누르면 계산 과정 */
+.scoreline.tappable {
+  cursor: pointer;
+}
+
+.score-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.score-steps li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--paper-deep);
+  font-size: 14px;
+}
+
+.step-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.step-label small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.score-steps li.step-modifier .step-label {
+  color: var(--accent);
+}
+
+.score-steps li.step-curse .step-label,
+.score-steps li.step-void .step-label {
+  color: var(--bad);
+}
+
+/* 설정 */
+.toggle-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.toggle-row button {
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--paper-deep);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.toggle-row button.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.code-input.save-code {
+  font-size: 12px;
+  letter-spacing: 0;
+  word-break: break-all;
+}
+
+.sheet-actions.inline {
+  margin-top: 8px;
+}
+
+.sheet-actions button.with-sub {
+  height: auto;
+  min-height: 48px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.button-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+/* 처음 화면 아랫줄 (도감, 설정) */
+.title-button.small {
+  min-height: 46px;
+  font-size: 15px;
+}
+
+/* 도감 */
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.collection-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 72px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.55);
+  box-shadow: inset 0 0 0 1px var(--paper-deep);
+}
+
+.collection-item.unseen {
+  background: transparent;
+  opacity: 0.6;
+}
+
+.collection-icon {
+  display: grid;
+  place-items: center;
+  min-height: 28px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.collection-name {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.legend-emoji {
+  flex: none;
+  width: 22px;
+  text-align: center;
+}
+
+/* 결과 공유 버튼 두 개 */
+.share-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.share-buttons .share-button {
+  flex: 1;
+}
+
+.share-button.image {
+  flex: none;
+  width: auto;
+  padding: 0 16px;
+  background: var(--paper-deep);
+  color: var(--ink);
+}
+
+/* 저주받은 부적, 장터 반값 */
+.offer.cursed {
+  background: linear-gradient(120deg, #efe6f3, #e2d3ea);
+  box-shadow: inset 0 0 0 2px #7d5a92;
+}
+
+.tag.sale {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+}
+
+/* 판마다 1번 무료 되돌리기 (상태 줄 오른쪽) */
+.undo-chip {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.undo-chip:disabled {
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+}
+
+/* 🔖 도장으로 고른 블록 */
+.bag-item.chosen {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* 변경·설명 */
+.title-row.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.new-badge {
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: #fff;
+  opacity: 1 !important;
+}
+
+.info-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.info-tabs button {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--paper-deep);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.info-tabs button.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.info-subtitle {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.info-entry {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.55);
+  box-shadow: inset 0 0 0 1px var(--paper-deep);
+}
+
+.info-icon {
+  flex: none;
+  width: 30px;
+  font-size: 22px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.info-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.info-name {
+  font-weight: 800;
+}
+
+.info-name .tag {
+  display: inline-block;
+  margin: 2px 0 0 6px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--paper-deep);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.info-text {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.stake-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+}
+
+.release .section-title small {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.change-list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.55);
+}
+
+.change-list p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.change-tag {
+  flex: none;
+  min-width: 40px;
+  padding: 2px 6px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  color: #fff;
+}
+
+.change-tag.up {
+  background: #3f8f5a;
+}
+
+.change-tag.down {
+  background: var(--bad);
+}
+
+.change-tag.new {
+  background: #3b7cad;
+}
+
+.change-tag.change {
+  background: var(--ink-soft);
+}
+
+/* 왼손 모드: 아래 버튼 줄을 좌우로 뒤집는다 */
+.left-hand .controls,
+.left-hand .shop-footer {
+  flex-direction: row-reverse;
+}
+
 /* 세로가 짧은 폰(아이폰 SE 사파리 등): 판에 공간을 더 주려고 나머지를 줄인다 */
 @media (max-height: 640px) {
   .game {

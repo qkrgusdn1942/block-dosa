@@ -80,3 +80,6 @@ export const BAG_TYPES: readonly BagTypeDef[] = [
 ];
 
 export const BAG_BY_ID = Object.fromEntries(BAG_TYPES.map((b) => [b.id, b])) as Record<BagType, BagTypeDef>;
+
+/** 도전 코드 뒤에 붙는 가방 글자 (기본·막대·네모·혼돈의 첫 자음) → docs/10-social.md */
+export const BAG_CODES: Record<BagType, string> = { basic: 'G', bars: 'M', squares: 'N', chaos: 'H' };

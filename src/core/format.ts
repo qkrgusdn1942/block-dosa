@@ -43,7 +43,35 @@ export function formatKo(value: number): string {
   return sign + truncated.toLocaleString('ko-KR', { maximumFractionDigits: digits }) + UNITS[unit];
 }
 
+/** 지수 표기: 1만 미만은 그대로, 그 이상은 유효숫자 3자리 (내림). 예: 12,345 → 1.23e4 */
+export function formatExp(value: number): string {
+  if (!Number.isFinite(value)) return '∞';
+  const sign = value < 0 ? '-' : '';
+  const n = Math.floor(Math.abs(value));
+  if (n < 10_000) return sign + n.toLocaleString('ko-KR');
+  let exp = Math.floor(Math.log10(n));
+  if (n < 10 ** exp) exp--;
+  if (n >= 10 ** (exp + 1)) exp++;
+  const mantissa = Math.floor((n / 10 ** exp) * 100 + 1e-9) / 100;
+  return `${sign}${mantissa}e${exp}`;
+}
+
+/** 화면 숫자 표기 설정 → docs/06-incremental.md */
+export type NumberStyle = 'korean' | 'exponent';
+
+let numberStyle: NumberStyle = 'korean';
+
+/** 처음 화면·설정에서 바꾸면 그 뒤로 그리는 숫자에 적용된다. 공유 글은 늘 한국식 */
+export function setNumberStyle(style: NumberStyle) {
+  numberStyle = style;
+}
+
+/** 화면에 보여줄 점수·목표 (설정에 따라 한국식 또는 지수) */
+export function formatScore(value: number): string {
+  return numberStyle === 'exponent' ? formatExp(value) : formatKo(value);
+}
+
 /** 배수는 ×1.5 같은 소수가 나올 수 있어서 작은 수는 소수 한 자리까지 */
 export function formatMult(value: number): string {
-  return value < 10_000 ? String(Math.round(value * 10) / 10) : formatKo(value);
+  return value < 10_000 ? String(Math.round(value * 10) / 10) : formatScore(value);
 }

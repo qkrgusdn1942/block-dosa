@@ -24,6 +24,7 @@ export interface PassiveTotals {
   extraDraw: number;
   doubleTimes: boolean;
   revive: boolean;
+  noInterest: boolean;
 }
 
 export function passiveTotals(talismans: readonly TalismanInstance[], sealedUid: number | null): PassiveTotals {
@@ -38,6 +39,7 @@ export function passiveTotals(talismans: readonly TalismanInstance[], sealedUid:
     extraDraw: 0,
     doubleTimes: false,
     revive: false,
+    noInterest: false,
   };
   for (const t of activeTalismans(talismans, sealedUid)) {
     const passive = TALISMANS[t.id].passive;
@@ -52,6 +54,7 @@ export function passiveTotals(talismans: readonly TalismanInstance[], sealedUid:
     totals.extraDraw += passive.extraDraw ?? 0;
     totals.doubleTimes ||= passive.doubleTimes ?? false;
     totals.revive ||= passive.revive ?? false;
+    totals.noInterest ||= passive.noInterest ?? false;
   }
   return totals;
 }
