@@ -1,11 +1,13 @@
+import type { ReactNode } from 'react';
 import { PATTERNS } from '../content/balance';
 import { formatKo, formatMult } from '../core/format';
+import type { StepKind } from '../core/scoring';
 import type { ClearEvent, StageToast } from '../core/stage';
 
 interface Props {
   lastClear: ClearEvent | null;
   /** 지금 해야 할 일 (버릴 블록 고르기 등). 계속 떠 있다 */
-  notice: string | null;
+  notice: ReactNode;
   /** 잠깐 떴다 사라지는 알림 (기사회생 등) */
   toast: StageToast | null;
 }
@@ -32,11 +34,21 @@ export function ScoreLine({ lastClear, notice, toast }: Props) {
   );
 }
 
+/** 부적 효과는 부적 줄에서 보여주고, 여기엔 판에서 생긴 효과만 태그로 */
+const TAG_STEPS: ReadonlySet<StepKind> = new Set(['streak', 'star', 'glass', 'perfect', 'void']);
+
 function ClearCalc({ event }: { event: ClearEvent }) {
   const { result } = event;
-  // 부적 효과는 부적 줄에서 보여주고, 여기엔 연속·별 칸·대청소만 태그로
-  const tags = result.steps.filter((s) => s.kind === 'streak' || s.kind === 'star' || s.kind === 'perfect').map((s) => s.label);
+  // 같은 효과가 여러 번이면 한 태그로 (유리 2)
+  const counts = new Map<string, number>();
+  for (const step of result.steps) {
+    if (TAG_STEPS.has(step.kind)) counts.set(step.label, (counts.get(step.label) ?? 0) + 1);
+  }
+  const tags = [...counts].map(([label, n]) => (n > 1 ? `${label} ${n}` : label));
   if (event.shifted) tags.unshift('🐍 밀림');
+  if (event.lucky > 0) tags.push('☘ 행운!');
+  if (event.broken > 0) tags.push(`◇ 깨짐 ${event.broken}`);
+  if (event.gold > 0) tags.push(`+$${event.gold}`);
 
   return (
     <div className="clear-calc">

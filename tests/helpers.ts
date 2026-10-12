@@ -1,8 +1,10 @@
 import { BASE_LEVELS } from '../src/content/balance';
 import { STARTING_BAG, type ShapeId } from '../src/content/blocks';
+import type { Enhancement } from '../src/content/enhancements';
 import type { TalismanId, TalismanInstance } from '../src/content/talismans';
 import { cellIndex, emptyBoard, type Board, type Filled } from '../src/core/board';
 import { extent, orientations, type Piece } from '../src/core/pieces';
+import { Rng } from '../src/core/rng';
 import type { ClearContext } from '../src/core/scoring';
 import { createStage, type BagEntry, type StageSetup, type StageState } from '../src/core/stage';
 
@@ -84,6 +86,7 @@ export function setup(overrides: Partial<StageSetup> = {}): StageSetup {
     levels: { ...BASE_LEVELS },
     extraHands: 0,
     extraDiscards: 0,
+    extraRocks: 0,
     rescue: false,
     scoreAttack: false,
     ...overrides,
@@ -93,4 +96,24 @@ export function setup(overrides: Partial<StageSetup> = {}): StageSetup {
 /** 빈 판(보너스 칸 없음)에서 시작하는 판. overrides로 상태를 덮어쓴다 */
 export function stageWith(overrides: Partial<StageState> = {}, setupOverrides: Partial<StageSetup> = {}): StageState {
   return { ...createStage(setup(setupOverrides)), board: emptyBoard(), bonus: {}, ...overrides };
+}
+
+/** 강화된 블록 칸. piece가 같으면 한 블록의 칸들 */
+export function enhancedCell(enh: Enhancement, piece?: number, bagId?: number): Filled {
+  return { kind: 'block', shape: 'dot', enh, ...(piece !== undefined && { piece }), ...(bagId !== undefined && { bagId }) };
+}
+
+/** 판의 몇 칸을 바꾼다 */
+export function withCells(board: Board, cells: Record<number, Filled | null>): Board {
+  const next = board.slice();
+  for (const [index, cell] of Object.entries(cells)) next[Number(index)] = cell;
+  return next;
+}
+
+/** 조건을 만족하는 랜덤 상태를 찾는다 (확률 효과를 정해진 결과로 시험할 때) */
+export function rngStateWhere(check: (rng: Rng) => boolean): number {
+  for (let state = 1; state < 100_000; state++) {
+    if (check(new Rng(state))) return state;
+  }
+  throw new Error('조건에 맞는 랜덤 상태가 없습니다');
 }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { BOARD_SIZE } from '../src/content/balance';
 import { cellIndex, emptyBoard } from '../src/core/board';
-import { createStage, drawPiece, isStuck, stageReducer, type StageState } from '../src/core/stage';
+import { createStage, drawPiece, hasRescue, isStuck, stageReducer, type StageState } from '../src/core/stage';
 import type { Piece } from '../src/core/pieces';
-import { boardFrom, boardText, pieceOf, setup, stageWith, talisman } from './helpers';
+import { boardFrom, boardText, pieceOf, setup, stageWith, talisman, withCells } from './helpers';
 
 const DIAGONAL_EMPTY = [
   '.#######',
@@ -326,5 +326,183 @@ describe('요괴', () => {
     const next = stageReducer(ready, { type: 'place', slot: 0, row: 0, col: 7 });
     expect(next.lastClear?.shifted).toBe(true);
     expect(next.score).toBeGreaterThan(0);
+  });
+});
+
+const place = (stage: StageState, slot: number | 'stash', row: number, col: number) =>
+  stageReducer(stage, { type: 'place', slot, row, col });
+
+describe('v1.0 요괴', () => {
+  it('💀 저승사자: 핸드 −1, 버리기 0 (부적·수련으로 늘어난 것까지)', () => {
+    const stage = createStage(
+      setup({ ante: 3, kind: 'boss', boss: 'grimReaper', talismans: [talisman('winnow', 1)], extraDiscards: 1 }),
+    );
+    expect(stage.rules.hands).toBe(4);
+    expect(stage.rules.discards).toBe(0);
+    expect(stage.discardsLeft).toBe(0);
+  });
+
+  it('🔥 강철이: 판에서 골드를 하나도 못 얻는다', () => {
+    const stage = createStage(setup({ ante: 2, kind: 'boss', boss: 'gangcheol', talismans: [talisman('toad')] }));
+    const ready = { ...stage, board: boardFrom(['.#######']), bonus: { 0: 'gem' as const }, hand: hand(dot(), null, null) };
+    const next = place(ready, 0, 0, 0);
+    expect(next.score).toBe(54);
+    expect(next.goldEarned).toBe(0);
+  });
+
+  it('👊 두억시니: 한 줄 클리어는 0점, 두 줄부터 점수', () => {
+    const stage = { ...createStage(setup({ ante: 3, kind: 'boss', boss: 'dueoksini' })), bonus: {} };
+    const single = place({ ...stage, board: boardFrom(['.#######', '#']), hand: hand(dot(), dot(1001), null) }, 0, 0, 0);
+    expect(single.score).toBe(0);
+    expect(single.lastClear?.result.steps.at(-1)?.kind).toBe('void');
+    expect(single.streak).toBe(1);
+    const crossBoard = boardFrom(['.#######', '#', '#', '#', '#', '#', '#', '#......#']);
+    const cross = place({ ...stage, board: crossBoard, hand: hand(dot(), dot(1001), null) }, 0, 0, 0);
+    expect(cross.score).toBe((35 + 15) * 3);
+  });
+
+  it('🐅 장산범: 핸드마다 블록 하나가 가려지고, 집어 들면 드러난다', () => {
+    const stage = createStage(setup({ ante: 2, kind: 'boss', boss: 'jangsanbeom' }));
+    expect(stage.hand.filter((p) => p?.hidden)).toHaveLength(1);
+    const slot = stage.hand.findIndex((p) => p?.hidden);
+    const revealed = stageReducer(stage, { type: 'reveal', slot });
+    expect(revealed.hand[slot]?.hidden).toBeUndefined();
+    expect(revealed.hand[slot]?.cells).toEqual(stage.hand[slot]?.cells);
+    // 다음 핸드도 하나가 가려진다
+    const ready = { ...revealed, board: emptyBoard(), bonus: {}, hand: hand(dot(), null, null) };
+    expect(place(ready, 0, 4, 4).hand.filter((p) => p?.hidden)).toHaveLength(1);
+  });
+});
+
+describe('🎒 보따리 (보관함)', () => {
+  const withStash = (overrides: Partial<StageState> = {}) => stageWith({ stashEnabled: true, ...overrides });
+
+  it('보따리가 있어야 보관함을 쓸 수 있다', () => {
+    expect(createStage(setup({ talismans: [talisman('bundle')] })).stashEnabled).toBe(true);
+    const stage = stageWith({ hand: hand(dot(), dot(1001), dot(1002)) });
+    expect(stageReducer(stage, { type: 'stash', slot: 0 })).toBe(stage);
+  });
+
+  it('넣으면 이번 핸드 몫을 하나 쓴 것: 넣기 1 + 놓기 2면 다음 핸드', () => {
+    const stashed = stageReducer(withStash({ hand: hand(dot(), dot(1001), dot(1002)) }), { type: 'stash', slot: 0 });
+    expect(stashed.stash?.uid).toBe(1000);
+    expect(stashed.hand[0]).toBeNull();
+    expect(stashed.resolvedThisHand).toBe(1);
+    // 보관함이 차 있으면 더 못 넣는다
+    expect(stageReducer(stashed, { type: 'stash', slot: 1 })).toBe(stashed);
+    const next = place(place(stashed, 1, 4, 4), 2, 6, 6);
+    expect(next.handNumber).toBe(2);
+    expect(next.stash?.uid).toBe(1000);
+  });
+
+  it('보관함 블록은 아무 때나 꺼내 놓고, 핸드 몫으로 세지 않는다', () => {
+    const stage = withStash({ stash: dot(900), hand: hand(dot(), dot(1001), dot(1002)) });
+    const next = place(stage, 'stash', 2, 2);
+    expect(next.stash).toBeNull();
+    expect(next.resolvedThisHand).toBe(0);
+    expect(next.placedThisHand).toBe(1);
+    expect(next.hand).toEqual(stage.hand);
+  });
+
+  it('보관함 블록이 들어가거나, 마지막 블록을 넣어 둘 수 있으면 막힘이 아니다', () => {
+    const board = boardFrom(DIAGONAL_EMPTY);
+    const square = hand(pieceOf('square'), null, null);
+    expect(isStuck(withStash({ board, hand: square, stash: dot(900) }))).toBe(false);
+    expect(isStuck(withStash({ board, hand: square, resolvedThisHand: 2 }))).toBe(false);
+    expect(isStuck(stageWith({ board, hand: square, resolvedThisHand: 2 }))).toBe(true);
+    expect(isStuck(withStash({ board, hand: square, resolvedThisHand: 2, stash: pieceOf('square', 0, 900) }))).toBe(true);
+  });
+
+  it('가방을 다시 섞을 때 보관함 블록은 빠진다', () => {
+    const stage = createStage(setup());
+    const stash = { ...dot(900), bagId: stage.pile[0] };
+    const { stage: after, piece } = drawPiece({ ...stage, stash, pile: [] }, stage.hand);
+    expect(piece.bagId).not.toBe(stash.bagId);
+    expect(after.pile).not.toContain(stash.bagId);
+    expect(after.pile).toHaveLength(18 - 3 - 1 - 1);
+  });
+});
+
+describe('🎁 덤과 🍡 시루떡', () => {
+  it('덤: 블록 4개를 받고, 3개를 놓으면 다음 핸드 (남은 하나는 내려놓는다)', () => {
+    const stage = createStage(setup({ talismans: [talisman('extra')] }));
+    expect(stage.hand).toHaveLength(4);
+    const ready = { ...stage, board: emptyBoard(), bonus: {}, hand: hand(dot(), dot(1001), dot(1002), dot(1003)) };
+    const two = place(place(ready, 0, 0, 0), 1, 2, 2);
+    expect(two.handNumber).toBe(1);
+    const three = place(two, 2, 4, 4);
+    expect(three.handNumber).toBe(2);
+    expect(three.hand).toHaveLength(4);
+    expect(three.hand.every((p) => p !== null && p.uid !== 1003)).toBe(true);
+  });
+
+  it('시루떡: 판마다 핸드 +1', () => {
+    expect(createStage(setup({ talismans: [talisman('riceCake')] })).rules.hands).toBe(6);
+  });
+});
+
+describe('🧹 빗자루', () => {
+  it('고른 칸의 가로줄이나 세로줄을 비운다 (바위 포함, 점수 없음)', () => {
+    const stage = stageWith({ board: boardFrom(['##R#', '#', '#']), consumables: [{ kind: 'broom' }] });
+    const row = stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(0, 2), axis: 'row' });
+    expect(boardText(row.board).slice(0, 3)).toEqual(['........', '#.......', '#.......']);
+    expect(row.score).toBe(0);
+    expect(row.consumables).toHaveLength(0);
+    const col = stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(1, 0), axis: 'col' });
+    expect(boardText(col.board).slice(0, 3)).toEqual(['.#R#....', '........', '........']);
+    // 빈 줄에는 못 쓴다
+    expect(stageReducer(stage, { type: 'useConsumable', index: 0, cell: cellIndex(5, 5), axis: 'row' })).toBe(stage);
+  });
+
+  it('막혔을 때 쓸 수 있는 소모품으로 친다', () => {
+    expect(hasRescue(stageWith({ consumables: [{ kind: 'broom' }] }))).toBe(true);
+    expect(hasRescue(stageWith({ consumables: [{ kind: 'stamp', enh: 'gold' }, { kind: 'ink' }] }))).toBe(false);
+  });
+});
+
+describe('부적이 보는 판 상황', () => {
+  it('🗿 장승: 한 핸드의 세 블록이 모두 줄을 지우면 세 번째 클리어에 ×3', () => {
+    const board = boardFrom(['.#######', '.#######', '.#######', '#']);
+    const stage = stageWith({ board, talismans: [talisman('totem', 1)], hand: hand(dot(), dot(1001), dot(1002)) });
+    const first = place(stage, 0, 0, 0);
+    const second = place(first, 1, 1, 0);
+    expect(second.lastClear?.result.steps.some((s) => s.source === 1)).toBe(false);
+    const third = place(second, 2, 2, 0);
+    expect(third.lastClear?.result.steps.some((s) => s.source === 1)).toBe(true);
+    expect(third.score).toBe(18 + 36 + 18 * 9);
+  });
+
+  it('💍 쌍가락지: 직전 클리어와 같은 족보면 ×2', () => {
+    const board = boardFrom(['.#######', '.#######', '#']);
+    const stage = stageWith({ board, talismans: [talisman('rings', 1)], hand: hand(dot(), dot(1001), null) });
+    const first = place(stage, 0, 0, 0);
+    expect(first.score).toBe(18);
+    expect(place(first, 1, 1, 0).score).toBe(18 + 18 * 4);
+  });
+
+  it('🧱 돌담: 가장자리에 닿은 블록으로 지웠을 때만', () => {
+    const edge = stageWith({ board: boardFrom(['', '', '', '.#######', '#']), talismans: [talisman('stoneWall', 1)], hand: hand(dot(), null, null) });
+    expect(place(edge, 0, 3, 0).score).toBe(18 + 30);
+    const inner = stageWith({ board: boardFrom(['', '', '', '###.####', '#']), talismans: [talisman('stoneWall', 1)], hand: hand(dot(), null, null) });
+    expect(place(inner, 0, 3, 3).score).toBe(18);
+  });
+
+  it('🧭 사신도: 네 모서리가 찬 채로 지우면 ×2.5', () => {
+    const board = boardFrom(['.######', '', '', '', '', '', '', '#......#']);
+    const corners = withCells(board, { [cellIndex(0, 7)]: { kind: 'block', shape: 'dot' } });
+    const stage = stageWith({ board: corners, talismans: [talisman('fourGods', 1)], hand: hand(dot(), null, null) });
+    expect(place(stage, 0, 0, 0).score).toBe(Math.floor(18 * 2.5));
+  });
+
+  it('⛄ 눈사람: 대청소할 때마다 자란다', () => {
+    const stage = stageWith({ board: boardFrom(['.#######']), talismans: [talisman('snowman', 1)], hand: hand(dot(), null, null) });
+    const next = place(stage, 0, 0, 0);
+    expect(next.talismans[0].counter).toBe(1);
+    expect(next.score).toBe(Math.floor(18 * 1.5 * 3));
+  });
+
+  it('🐸 두꺼비: 대청소하면 +$5', () => {
+    const stage = stageWith({ board: boardFrom(['.#######']), talismans: [talisman('toad', 1)], hand: hand(dot(), null, null) });
+    expect(place(stage, 0, 0, 0).goldEarned).toBe(5);
   });
 });

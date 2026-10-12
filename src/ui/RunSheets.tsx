@@ -1,6 +1,7 @@
 import { RARITY_NAMES, STAGE_NAMES } from '../content/balance';
 import { BOSSES, type BossId } from '../content/bosses';
 import { consumableInfo } from '../content/consumables';
+import { STAKES } from '../content/stakes';
 import { TALISMANS } from '../content/talismans';
 import { formatKo } from '../core/format';
 import { meritTotal, runMerit } from '../core/profile';
@@ -23,7 +24,7 @@ export function PreviewSheet({ run, onStart }: { run: RunState; onStart: () => v
 
   return (
     <Sheet
-      title={stage.scoreAttack ? '🏁 끝판' : `고개 ${run.ante} · ${STAGE_NAMES[stage.kind]}`}
+      title={stage.scoreAttack ? '🏁 끝판' : `${run.endless ? '♾️ ' : ''}고개 ${run.ante} · ${STAGE_NAMES[stage.kind]}`}
       sub={
         stage.scoreAttack
           ? '목표 없이 핸드를 다 쓸 때까지 최대한 점수를 내요. 이 점수로 친구들과 겨뤄요.'
@@ -47,6 +48,11 @@ export function PreviewSheet({ run, onStart }: { run: RunState; onStart: () => v
         {gems > 0 && <li>💎 보석 칸 {gems}개: 덮어서 지우면 +$3</li>}
         {stars > 0 && <li>⭐ 별 칸 {stars}개: 덮어서 지우면 그 점수 ×2</li>}
         {sealed && <li>🔒 봉인된 부적: {TALISMANS[sealed.id].name}</li>}
+        {run.stake > 1 && (
+          <li>
+            난이도 {run.stake} {STAKES[run.stake - 1].name}
+          </li>
+        )}
       </ul>
       <div className="sheet-actions">
         <button className="primary" onClick={onStart}>
@@ -112,6 +118,7 @@ export function RelicSheet({ run, onPick, onSkip, onTalismanTap }: RelicProps) {
                 text={def.text}
                 action={fullTalismans ? '칸 가득' : '받기'}
                 disabled={fullTalismans}
+                highlight={def.rarity === 'legendary'}
                 onAction={() => onPick(index)}
               />
             );
@@ -165,6 +172,7 @@ function endHeadline(run: RunState): { title: string; sub: string } {
     run.stage.failReason === 'stuck'
       ? `${where}에서 막혔어요. 놓을 자리가 없었어요.`
       : `${where}에서 핸드를 다 썼는데 목표에 못 미쳤어요.`;
+  if (run.endless) return { title: `♾️ 끝없는 모드 · 고개 ${run.ante}`, sub: `엔딩 뒤 ${reason}` };
   if (daily) {
     const badge = run.official ? '공식 기록' : '연습';
     return ending
@@ -230,6 +238,25 @@ export function RunEndSheet({ run, merit, onNew, onRetry, onTraining, onTitle }:
         <button onClick={onTraining}>수련하러 가기</button>
         <button onClick={onRetry}>{run.mode === 'daily' ? '오늘의 판 다시 (연습)' : '같은 시드로 다시'}</button>
         <button onClick={onTitle}>처음 화면</button>
+      </div>
+    </Sheet>
+  );
+}
+
+/** 고개 8 이무기를 깬 뒤: 엔딩으로 끝내거나 끝없는 모드로 계속 */
+export function VictorySheet({ onEndless, onFinish }: { onEndless: () => void; onFinish: () => void }) {
+  return (
+    <Sheet title="🐍 이무기를 봉인했어요!" sub="여덟 고개를 모두 넘었어요. 엔딩 공덕은 어느 쪽을 골라도 받아요." delayed>
+      <ul className="rules">
+        <li>♾️ 끝없는 모드: 지금 부적·가방 그대로 고개 9부터 계속 가요.</li>
+        <li>목표가 고개마다 ×3 → ×5 → ×10으로 커져요. 막히면 그때 끝나요.</li>
+        <li>멀리 갈수록 공덕도 더 받아요.</li>
+      </ul>
+      <div className="sheet-actions">
+        <button className="primary" onClick={onEndless}>
+          끝없는 모드로 계속
+        </button>
+        <button onClick={onFinish}>여기서 마치기</button>
       </div>
     </Sheet>
   );

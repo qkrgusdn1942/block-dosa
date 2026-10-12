@@ -1,5 +1,6 @@
 import { STAGE_NAMES } from '../content/balance';
 import { BOSSES } from '../content/bosses';
+import { STAKES } from '../content/stakes';
 import { formatKo } from '../core/format';
 import type { RunState } from '../core/run';
 
@@ -17,6 +18,8 @@ export function Hud({ run, onBossTap }: { run: RunState; onBossTap: () => void }
         <span className="stage-name">
           {run.mode === 'daily' && <span className="mode-tag">오늘의 판</span>}
           {run.mode === 'seed' && <span className="mode-tag">도전장</span>}
+          {run.endless && <span className="mode-tag">끝없는</span>}
+          {run.stake > 1 && <span className="mode-tag stake">{STAKES[run.stake - 1].name}</span>}
           {scoreAttack ? '🏁 끝판' : `고개 ${run.ante} · ${STAGE_NAMES[stage.kind]}`}
         </span>
         {boss && (

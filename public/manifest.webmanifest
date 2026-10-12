@@ -1,0 +1,17 @@
+{
+  "name": "블록 도사",
+  "short_name": "블록 도사",
+  "description": "블록 퍼즐 × 로그라이크. 요괴가 막은 여덟 고개를 블록으로 넘어라",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4ecdc",
+  "theme_color": "#f4ecdc",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

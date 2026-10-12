@@ -4,14 +4,14 @@ import {
   BASE_LEVELS,
   CONSUMABLE_SLOTS,
   DAILY_ANTES,
+  ENDLESS_GROWTH,
   GOLD_PER_HAND_LEFT,
-  INTEREST_CAP,
   INTEREST_STEP,
   MIN_BAG_SIZE,
-  PACK_PRICE,
   PATTERN_IDS,
+  RELIC_LEGENDARY_CHANCE,
+  RELIC_LEGENDARY_FROM_ANTE,
   RELIC_RARITY_WEIGHTS,
-  REMOVAL_PRICE,
   SHOP_TALISMAN_COUNT,
   STAGE_NAMES,
   STAGE_REWARD,
@@ -22,27 +22,35 @@ import {
   type PatternLevels,
   type StageKind,
 } from '../content/balance';
-import { STARTING_BAG, type ShapeId } from '../content/blocks';
+import { BAG_BY_ID, type BagType, type BagTypeDef } from '../content/bags';
 import { BOSSES, FINAL_BOSS, REGULAR_BOSSES, type BossId } from '../content/bosses';
 import type { Consumable } from '../content/consumables';
+import { ENHANCEMENT_IDS } from '../content/enhancements';
+import { stakeRules } from '../content/stakes';
 import { TALISMANS, type TalismanId, type TalismanInstance } from '../content/talismans';
+import { NO_UNLOCK_RECORDS, type UnlockRecords } from '../content/unlocks';
 import { NO_PERKS, type RunPerks } from '../content/upgrades';
 import { passiveTotals } from './effects';
 import { levelUp, moveTalisman } from './loadout';
 import { Rng } from './rng';
+import { MAX_SCORE } from './scoring';
 import {
   createShop,
   openPack,
+  packPrice,
   randomScroll,
+  removalPrice,
   rerollCost,
   restock,
   rollTalismans,
   sellPrice,
+  talismanPool,
   type ShopState,
 } from './shop';
 import {
   createStage,
   handsLeft,
+  stageBoss,
   stageReducer,
   type BagEntry,
   type StageAction,
@@ -51,16 +59,20 @@ import {
 
 /** 런 진행: 고개 8개 × (판 1 → 판 2 → 요괴 판), 사이사이 장터 → docs/03-roguelike.md */
 
-/** starter = 수련 "첫 인연"으로 부적을 고르는 중 */
-export type RunPhase = 'starter' | 'preview' | 'playing' | 'reward' | 'relic' | 'shop' | 'over' | 'ending';
-
-/** 이 런을 시작하기 전까지의 기록 (처음 달성 공덕 계산용) */
-export interface RunRecords {
-  bestAnte: number;
-  endings: number;
-}
-
-export const NO_RECORDS: RunRecords = { bestAnte: 0, endings: 0 };
+/**
+ * starter = 수련 "첫 인연"으로 부적을 고르는 중
+ * victory = 고개 8 요괴를 깨고, 끝낼지 끝없는 모드로 계속할지 고르는 중
+ */
+export type RunPhase =
+  | 'starter'
+  | 'preview'
+  | 'playing'
+  | 'reward'
+  | 'relic'
+  | 'shop'
+  | 'victory'
+  | 'over'
+  | 'ending';
 
 /**
  * normal = 새 런 (수련 적용, 고개 8)
@@ -105,6 +117,11 @@ export interface RunState {
   mode: RunMode;
   /** 오늘의 판 첫 도전 (공식 기록) */
   official: boolean;
+  /** 런 시작 때 고른 가방과 난이도 단계 */
+  bagType: BagType;
+  stake: number;
+  /** 고개 8을 넘어 끝없는 모드로 계속하는 중 */
+  endless: boolean;
   /** 지나온 판 결과 (공유용 🟩🟨🟥) */
   history: readonly StageMark[];
   ante: number;
@@ -115,7 +132,7 @@ export interface RunState {
   talismans: readonly TalismanInstance[];
   consumables: readonly Consumable[];
   levels: PatternLevels;
-  /** 고개별 요괴 (런 시작 때 정해짐) */
+  /** 고개 1~8의 요괴 (런 시작 때 정해짐). 고개 9부터는 bossAt이 그때그때 정한다 */
   bosses: readonly BossId[];
   /** 지금 판 (미리보기·진행 중) 또는 방금 끝난 판 */
   stage: StageState;
@@ -127,7 +144,8 @@ export interface RunState {
   stats: RunStats;
   /** 수련 효과 (런 시작 때 정해짐) */
   perks: RunPerks;
-  records: RunRecords;
+  /** 이 런을 시작하기 전까지의 기록 (처음 달성 공덕, 해금) */
+  records: UnlockRecords;
   /** 남은 🙏 기사회생 */
   rescueLeft: number;
 }
@@ -143,12 +161,16 @@ export type RunAction =
   | { type: 'buyPack' }
   | { type: 'pickPack'; index: number }
   | { type: 'skipPack' }
-  | { type: 'removeBlock'; shape: ShapeId }
+  | { type: 'removeBlock'; bagId: number }
+  | { type: 'stamp'; index: number; bagId: number }
+  | { type: 'ink'; index: number; bagId: number }
   | { type: 'reroll' }
   | { type: 'sell'; uid: number }
   | { type: 'moveTalisman'; uid: number; dir: -1 | 1 }
   | { type: 'useScroll'; index: number }
-  | { type: 'next' };
+  | { type: 'next' }
+  | { type: 'finish' }
+  | { type: 'endless' };
 
 /** 고개 1~7은 일반 요괴 중에서 (바로 앞 고개와 다르게), 고개 8은 이무기 */
 export function rollBosses(seed: string): BossId[] {
@@ -164,31 +186,53 @@ export function rollBosses(seed: string): BossId[] {
   return bosses;
 }
 
-export function stageTarget(ante: number, kind: StageKind, boss: BossId | null): number {
-  // 끝판은 목표가 없다 (점수 내기)
-  if (kind === 'finale') return 0;
-  const base = ANTE_TARGETS[Math.min(ante, ANTE_TARGETS.length) - 1];
-  const mult = kind === 'boss' && boss ? BOSSES[boss].targetMult : STAGE_TARGET_MULT[kind as 'small' | 'big'];
-  return Math.round(base * mult);
+/** 고개의 요괴. 끝없는 모드(고개 9부터)는 고개마다 새로 뽑고, 8의 배수 고개는 이무기 */
+export function bossAt(run: Pick<RunState, 'seed' | 'bosses'>, ante: number): BossId {
+  const fixed = run.bosses[ante - 1];
+  if (fixed) return fixed;
+  if (ante % ANTE_COUNT === 0) return FINAL_BOSS;
+  const rng = Rng.fromSeed(run.seed, 'endless-boss', ante);
+  return REGULAR_BOSSES[rng.int(REGULAR_BOSSES.length)].id;
 }
 
-export const bossOf = (run: Pick<RunState, 'bosses' | 'ante' | 'stageKind'>) =>
-  run.stageKind === 'boss' ? run.bosses[run.ante - 1] : null;
+/** 고개의 기본 목표 (판 1 기준). 고개 9부터는 직전 고개보다 ×3 → ×5 → ×10씩 커진다 */
+export function anteBase(ante: number): number {
+  if (ante <= ANTE_TARGETS.length) return ANTE_TARGETS[ante - 1];
+  let base = ANTE_TARGETS[ANTE_TARGETS.length - 1];
+  for (let next = ANTE_TARGETS.length + 1; next <= ante; next++) {
+    const [, growth] = ENDLESS_GROWTH.find(([upTo]) => next <= upTo)!;
+    base *= growth;
+  }
+  return Math.min(base, MAX_SCORE);
+}
+
+export function stageTarget(ante: number, kind: StageKind, boss: BossId | null, stake = 1): number {
+  // 끝판은 목표가 없다 (점수 내기)
+  if (kind === 'finale') return 0;
+  const base = anteBase(ante);
+  if (kind === 'boss' && boss) return Math.round(base * BOSSES[boss].targetMult * stakeRules(stake).bossTargetScale);
+  return Math.round(base * STAGE_TARGET_MULT[kind as 'small' | 'big']);
+}
+
+export const bossOf = (run: Pick<RunState, 'seed' | 'bosses' | 'ante' | 'stageKind'>) =>
+  run.stageKind === 'boss' ? bossAt(run, run.ante) : null;
 
 function buildStage(run: Omit<RunState, 'stage'>): StageState {
   const boss = bossOf(run);
+  const stake = stakeRules(run.stake);
   return createStage({
     seed: run.seed,
     ante: run.ante,
     kind: run.stageKind,
     boss,
-    target: stageTarget(run.ante, run.stageKind, boss),
+    target: stageTarget(run.ante, run.stageKind, boss, run.stake),
     bag: run.bag,
     talismans: run.talismans,
     consumables: run.consumables,
     levels: run.levels,
-    extraHands: run.perks.hands,
-    extraDiscards: run.perks.discards,
+    extraHands: run.perks.hands + stake.handDelta,
+    extraDiscards: run.perks.discards + stake.discardDelta,
+    extraRocks: stake.extraRocks,
     rescue: run.rescueLeft > 0,
     scoreAttack: run.stageKind === 'finale',
   });
@@ -204,52 +248,79 @@ export interface RunStart {
 export interface RunOptions {
   start?: RunStart;
   perks?: RunPerks;
-  records?: RunRecords;
+  records?: UnlockRecords;
   mode?: RunMode;
   official?: boolean;
+  bagType?: BagType;
+  stake?: number;
+}
+
+/** 장터·유품에 나올 수 있는 부적. 새 런만 해금을 따르고, 오늘의 판·코드 도전은 전부 */
+const poolFor = (mode: RunMode, records: UnlockRecords) => talismanPool(mode === 'normal' ? records : null);
+const talismanPoolOf = (run: RunState) => poolFor(run.mode, run.records);
+
+/** 가방 종류대로 채운다. 혼돈 가방은 블록마다 무작위 강화 */
+function buildBag(seed: string, def: BagTypeDef): BagEntry[] {
+  const rng = Rng.fromSeed(seed, 'bag-enhance');
+  const bag: BagEntry[] = [];
+  for (const [shape, count] of def.contents) {
+    for (let i = 0; i < count; i++) {
+      const entry: BagEntry = { id: bag.length, shape };
+      if (def.enhanceAll) entry.enh = ENHANCEMENT_IDS[rng.int(ENHANCEMENT_IDS.length)];
+      bag.push(entry);
+    }
+  }
+  return bag;
 }
 
 /** 수련 "첫 인연": 일반 부적 3개 */
-function rollStarters(seed: string): RelicOffer[] {
+function rollStarters(seed: string, owned: ReadonlySet<TalismanId>, pool: readonly TalismanId[]): RelicOffer[] {
   const rng = Rng.fromSeed(seed, 'starter');
-  return rollTalismans(rng, new Set(), 3, [['common', 1]]).map((id) => ({ kind: 'talisman', id }));
+  return rollTalismans(rng, owned, 3, [['common', 1]], pool).map((id) => ({ kind: 'talisman', id }));
 }
 
 export function createRun(seed: string, options: RunOptions = {}): RunState {
   const {
     start = { ante: 1, kind: 'small' },
     perks = NO_PERKS,
-    records = NO_RECORDS,
+    records = NO_UNLOCK_RECORDS,
     mode = 'normal',
     official = false,
+    bagType = 'basic',
+    stake = 1,
   } = options;
-  const bag: BagEntry[] = [];
-  for (const [shape, count] of STARTING_BAG) {
-    for (let i = 0; i < count; i++) bag.push({ id: bag.length, shape });
-  }
+  const bagDef = BAG_BY_ID[bagType];
+  const bag = buildBag(seed, bagDef);
+  let nextId = bag.length;
+  const talismans: TalismanInstance[] = [];
+  if (bagDef.startTalisman) talismans.push({ uid: nextId++, id: bagDef.startTalisman, counter: 0 });
   const bosses = rollBosses(seed);
-  if (start.boss) bosses[start.ante - 1] = start.boss;
+  if (start.boss && start.ante <= ANTE_COUNT) bosses[start.ante - 1] = start.boss;
   const levels = Object.fromEntries(
     PATTERN_IDS.map((id) => [id, BASE_LEVELS[id] + perks.startLevels]),
   ) as PatternLevels;
+  const owned = new Set(talismans.map((t) => t.id));
   const run: Omit<RunState, 'stage'> = {
     seed,
     mode,
     official,
+    bagType,
+    stake,
+    endless: start.ante > ANTE_COUNT,
     history: [],
     ante: start.ante,
     stageKind: start.kind,
     phase: perks.firstCharm ? 'starter' : 'preview',
     gold: START_GOLD + perks.startGold,
     bag,
-    talismans: [],
+    talismans,
     consumables: [],
     levels,
     bosses,
     reward: null,
-    relics: perks.firstCharm ? rollStarters(seed) : null,
+    relics: perks.firstCharm ? rollStarters(seed, owned, poolFor(mode, records)) : null,
     shop: null,
-    nextId: bag.length,
+    nextId,
     stats: { stagesCleared: 0, bossesBeaten: 0, totalScore: 0, bestClear: 0, bestPattern: null, lines: 0, perfects: 0 },
     perks,
     records,
@@ -258,27 +329,42 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
   return { ...run, stage: buildStage(run) };
 }
 
-/** 판 클리어 보상: 기본 + 남은 핸드 + 보석 칸 + 부적 + 이자. 봉인된 부적은 이번 판 효과 없음 */
+/**
+ * 판 클리어 보상: 기본 + 남은 핸드 + 판에서 얻은 골드 + 부적 + 이자. 봉인된 부적은 이번 판 효과 없음.
+ * 🔥 강철이 판은 골드가 하나도 없다 (성장형 부적은 그대로 자란다)
+ */
 export function stageReward(
   gold: number,
   stage: StageState,
   perks: RunPerks = NO_PERKS,
+  stake = 1,
 ): { lines: RewardLine[]; talismans: TalismanInstance[] } {
-  const lines: RewardLine[] = [{ label: `${STAGE_NAMES[stage.kind]} 클리어`, gold: STAGE_REWARD[stage.kind] }];
-  const left = handsLeft(stage);
-  if (left > 0) lines.push({ label: `남은 핸드 ${left}개`, gold: left * GOLD_PER_HAND_LEFT });
-  if (stage.goldEarned > 0) lines.push({ label: '💎 보석 칸', gold: stage.goldEarned });
-
+  const talismanLines: RewardLine[] = [];
   const talismans = stage.talismans.map((t) => {
     if (t.uid === stage.sealedUid) return t;
     const def = TALISMANS[t.id];
     const effect = def.onStageClear?.(t);
-    if (effect?.gold) lines.push({ label: `${def.emoji} ${def.name}`, gold: effect.gold });
+    if (effect?.gold) talismanLines.push({ label: `${def.emoji} ${def.name}`, gold: effect.gold });
     return effect?.self ?? t;
   });
 
-  // 이자는 보상을 받기 직전의 보유 골드(판 중에 얻은 보석 포함) 기준
-  const cap = INTEREST_CAP + passiveTotals(talismans, stage.sealedUid).interestCap + perks.interestCap;
+  const boss = stageBoss(stage);
+  if (boss?.drought) return { lines: [{ label: `${boss.emoji} ${boss.name}의 가뭄: 골드 없음`, gold: 0 }], talismans };
+
+  const rules = stakeRules(stake);
+  const noSmallReward = stage.kind === 'small' && !rules.smallStageReward;
+  const lines: RewardLine[] = [
+    noSmallReward
+      ? { label: `${STAGE_NAMES.small} 클리어 (난이도: 보상 없음)`, gold: 0 }
+      : { label: `${STAGE_NAMES[stage.kind]} 클리어`, gold: STAGE_REWARD[stage.kind] },
+  ];
+  const left = handsLeft(stage);
+  if (left > 0) lines.push({ label: `남은 핸드 ${left}개`, gold: left * GOLD_PER_HAND_LEFT });
+  if (stage.goldEarned > 0) lines.push({ label: '💰 판에서 얻은 골드', gold: stage.goldEarned });
+  lines.push(...talismanLines);
+
+  // 이자는 보상을 받기 직전의 보유 골드(판 중에 얻은 골드 포함) 기준
+  const cap = rules.interestBase + passiveTotals(talismans, stage.sealedUid).interestCap + perks.interestCap;
   const interest = Math.min(cap, Math.floor((gold + stage.goldEarned) / INTEREST_STEP));
   if (interest > 0) lines.push({ label: `이자 ($${INTEREST_STEP}당 $1, 최대 $${cap})`, gold: interest });
   return { lines, talismans };
@@ -289,25 +375,42 @@ function stageMark(stage: StageState): StageMark {
   return handsLeft(stage) > 0 ? 'clear' : 'close';
 }
 
-/** 판이 끝나면 판에서 쓴 부적·소모품·레벨을 런으로 돌려받고 보상 또는 종료로. 끝판이 끝나면 런 완주 */
+/** 🪶 봉황 깃털: 판에 실패하면 깃털 하나를 태워 그 판을 넘긴다. 봉인된 깃털은 못 쓴다 */
+function revive(stage: StageState): StageState | null {
+  if (stage.status !== 'failed') return null;
+  const feather = stage.talismans.find((t) => t.uid !== stage.sealedUid && TALISMANS[t.id].passive?.revive);
+  if (!feather) return null;
+  return {
+    ...stage,
+    status: 'cleared',
+    failReason: null,
+    talismans: stage.talismans.filter((t) => t.uid !== feather.uid),
+  };
+}
+
+/** 판이 끝나면 판에서 쓴 가방·부적·소모품·레벨을 런으로 돌려받고 보상 또는 종료로. 끝판이 끝나면 런 완주 */
 function finishStage(run: RunState): RunState {
-  const { stage } = run;
+  const revived = revive(run.stage);
+  const stage = revived ?? run.stage;
   const finale = stage.kind === 'finale';
   const cleared = stage.status === 'cleared';
-  const reward = cleared && !finale ? stageReward(run.gold, stage, run.perks) : null;
+  const reward = cleared && !finale ? stageReward(run.gold, stage, run.perks, run.stake) : null;
+  const lines = reward && revived ? [{ label: '🪶 봉황 깃털이 타올라 되살아났어요', gold: 0 }, ...reward.lines] : reward?.lines;
   return {
     ...run,
+    stage,
+    bag: stage.bag,
     talismans: reward ? reward.talismans : stage.talismans,
     consumables: stage.consumables,
     levels: stage.levels,
     rescueLeft: run.rescueLeft - (stage.rescued ? 1 : 0),
-    reward: reward?.lines ?? null,
+    reward: lines ?? null,
     phase: finale ? 'ending' : cleared ? 'reward' : 'over',
-    history: finale ? run.history : [...run.history, stageMark(stage)],
+    history: finale ? run.history : [...run.history, revived ? 'close' : stageMark(stage)],
     stats: {
       stagesCleared: run.stats.stagesCleared + (cleared && !finale ? 1 : 0),
       bossesBeaten: run.stats.bossesBeaten + (cleared && stage.kind === 'boss' ? 1 : 0),
-      totalScore: run.stats.totalScore + stage.score,
+      totalScore: Math.min(MAX_SCORE, run.stats.totalScore + stage.score),
       bestPattern: stage.stats.best > run.stats.bestClear ? stage.stats.bestPattern : run.stats.bestPattern,
       bestClear: Math.max(run.stats.bestClear, stage.stats.best),
       lines: run.stats.lines + stage.stats.lines,
@@ -319,20 +422,32 @@ function finishStage(run: RunState): RunState {
 const ownedIds = (run: RunState) => new Set(run.talismans.map((t) => t.id));
 
 function openShop(run: RunState): RunState {
-  const count = SHOP_TALISMAN_COUNT + run.perks.shopTalismans;
-  return { ...run, phase: 'shop', shop: createShop(run.seed, run.ante, run.stageKind, ownedIds(run), count) };
+  const shop = createShop(run.seed, run.ante, run.stageKind, ownedIds(run), {
+    talismanCount: SHOP_TALISMAN_COUNT + run.perks.shopTalismans,
+    freeRerolls: passiveTotals(run.talismans, null).freeRerolls,
+    priceDelta: stakeRules(run.stake).priceDelta,
+    pool: talismanPoolOf(run),
+  });
+  return { ...run, phase: 'shop', shop };
 }
 
+/** 요괴 유품: 부적 2개(고개 4부터 가끔 전설 1개 포함) + 비전서 1개 */
 export function rollRelics(run: RunState): RelicOffer[] {
   const rng = Rng.fromSeed(run.seed, 'relic', run.ante);
-  const talismans = rollTalismans(rng, ownedIds(run), 2, RELIC_RARITY_WEIGHTS).map(
-    (id): RelicOffer => ({ kind: 'talisman', id }),
-  );
+  const pool = talismanPoolOf(run);
+  const owned = ownedIds(run);
+  const legendary =
+    run.ante >= RELIC_LEGENDARY_FROM_ANTE && rng.next() < RELIC_LEGENDARY_CHANCE
+      ? rollTalismans(rng, owned, 1, [['legendary', 1]], pool)
+      : [];
+  const others = rollTalismans(rng, new Set([...owned, ...legendary]), 2 - legendary.length, RELIC_RARITY_WEIGHTS, pool);
+  const talismans = [...legendary, ...others].map((id): RelicOffer => ({ kind: 'talisman', id }));
   return [...talismans, { kind: 'consumable', item: randomScroll(rng) }];
 }
 
-export const talismanSlots = (run: RunState) => TALISMAN_SLOTS + run.perks.talismanSlots;
-export const consumableSlots = (run: RunState) => CONSUMABLE_SLOTS + run.perks.consumableSlots;
+export const talismanSlots = (run: Pick<RunState, 'perks' | 'bagType'>) =>
+  TALISMAN_SLOTS + run.perks.talismanSlots + (BAG_BY_ID[run.bagType].talismanSlotDelta ?? 0);
+export const consumableSlots = (run: Pick<RunState, 'perks'>) => CONSUMABLE_SLOTS + run.perks.consumableSlots;
 export const talismanSlotsFull = (run: RunState) => run.talismans.length >= talismanSlots(run);
 export const consumableSlotsFull = (run: RunState) => run.consumables.length >= consumableSlots(run);
 
@@ -355,8 +470,8 @@ export function upcomingStage(run: RunState): { ante: number; kind: StageKind; b
   }
   const ante = run.stageKind === 'boss' ? run.ante + 1 : run.ante;
   const kind = NEXT_KIND[run.stageKind];
-  const boss = kind === 'boss' ? run.bosses[ante - 1] : null;
-  return { ante, kind, boss, target: stageTarget(ante, kind, boss) };
+  const boss = kind === 'boss' ? bossAt(run, ante) : null;
+  return { ante, kind, boss, target: stageTarget(ante, kind, boss, run.stake) };
 }
 
 function nextStage(run: RunState): RunState {
@@ -393,11 +508,17 @@ export function runReducer(run: RunState, action: RunAction): RunState {
       const gold = run.gold + run.reward.reduce((sum, line) => sum + line.gold, 0);
       const collected: RunState = { ...run, gold, reward: null };
       if (run.stageKind !== 'boss') return openShop(collected);
-      // 마지막 고개의 요괴를 깨면 엔딩 (오늘의 판은 유품·장터를 거쳐 끝판으로)
+      // 마지막 고개의 요괴를 깨면 끝낼지 계속할지 고른다 (오늘의 판은 유품·장터를 거쳐 끝판으로)
       const course = courseOf(run.mode);
-      if (run.ante >= course.antes && !course.finale) return { ...collected, phase: 'ending' };
+      if (!run.endless && run.ante >= course.antes && !course.finale) return { ...collected, phase: 'victory' };
       return { ...collected, phase: 'relic', relics: rollRelics(collected) };
     }
+
+    case 'finish':
+      return run.phase === 'victory' ? { ...run, phase: 'ending' } : run;
+
+    case 'endless':
+      return run.phase === 'victory' ? { ...run, endless: true, phase: 'relic', relics: rollRelics(run) } : run;
 
     case 'pickRelic': {
       const offer = run.relics?.[action.index];
@@ -436,17 +557,20 @@ export function runReducer(run: RunState, action: RunAction): RunState {
 
     case 'buyPack':
       return withShop(run, (shop) => {
-        if (shop.pack.bought || run.gold < PACK_PRICE) return null;
-        return { ...run, gold: run.gold - PACK_PRICE, shop: openPack(shop) };
+        const price = packPrice(shop);
+        if (shop.pack.bought || run.gold < price) return null;
+        return { ...run, gold: run.gold - price, shop: openPack(shop) };
       });
 
     case 'pickPack':
       return withShop(run, (shop) => {
-        const shape = shop.pack.choices?.[action.index];
-        if (!shape || shop.pack.done) return null;
+        const choice = shop.pack.choices?.[action.index];
+        if (!choice || shop.pack.done) return null;
+        const entry: BagEntry = { id: run.nextId, shape: choice.shape };
+        if (choice.enh) entry.enh = choice.enh;
         return {
           ...run,
-          bag: [...run.bag, { id: run.nextId, shape }],
+          bag: [...run.bag, entry],
           nextId: run.nextId + 1,
           shop: { ...shop, pack: { ...shop.pack, done: true } },
         };
@@ -459,22 +583,37 @@ export function runReducer(run: RunState, action: RunAction): RunState {
 
     case 'removeBlock':
       return withShop(run, (shop) => {
-        if (shop.removalUsed || run.gold < REMOVAL_PRICE || run.bag.length <= MIN_BAG_SIZE) return null;
-        const index = run.bag.map((entry) => entry.shape).lastIndexOf(action.shape);
-        if (index < 0) return null;
+        const price = removalPrice(shop);
+        if (shop.removalUsed || run.gold < price || run.bag.length <= MIN_BAG_SIZE) return null;
+        if (!run.bag.some((entry) => entry.id === action.bagId)) return null;
         return {
           ...run,
-          gold: run.gold - REMOVAL_PRICE,
-          bag: run.bag.filter((_, i) => i !== index),
+          gold: run.gold - price,
+          bag: run.bag.filter((entry) => entry.id !== action.bagId),
           shop: { ...shop, removalUsed: true },
         };
+      });
+
+    // 🔖 도장: 가방 블록 1개 강화 / 🖌️ 먹: 가방 블록 1개 복사 (장터에서만)
+    case 'stamp':
+    case 'ink':
+      return withShop(run, () => {
+        const item = run.consumables[action.index];
+        const target = run.bag.find((entry) => entry.id === action.bagId);
+        if (!item || item.kind !== action.type || !target) return null;
+        const consumables = run.consumables.filter((_, i) => i !== action.index);
+        if (item.kind === 'stamp') {
+          const bag = run.bag.map((entry) => (entry.id === target.id ? { ...entry, enh: item.enh } : entry));
+          return { ...run, consumables, bag };
+        }
+        return { ...run, consumables, bag: [...run.bag, { ...target, id: run.nextId }], nextId: run.nextId + 1 };
       });
 
     case 'reroll':
       return withShop(run, (shop) => {
         const cost = rerollCost(shop);
         if (run.gold < cost) return null;
-        return { ...run, gold: run.gold - cost, shop: restock(shop, ownedIds(run)) };
+        return { ...run, gold: run.gold - cost, shop: restock(shop, ownedIds(run), talismanPoolOf(run)) };
       });
 
     case 'sell': {

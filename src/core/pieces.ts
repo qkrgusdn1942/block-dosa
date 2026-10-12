@@ -1,4 +1,5 @@
 import { SHAPES, type ShapeId } from '../content/blocks';
+import type { Enhancement } from '../content/enhancements';
 
 /** [행, 열] */
 export type Cell = readonly [number, number];
@@ -15,6 +16,9 @@ export interface Piece {
   cols: number;
   /** 👹 도깨비가 모양을 바꾼 블록 */
   transformed?: boolean;
+  enh?: Enhancement;
+  /** 🐅 장산범이 가린 블록. 집어 들면 드러난다 */
+  hidden?: boolean;
 }
 
 export function parsePattern(pattern: readonly string[]): Cell[] {

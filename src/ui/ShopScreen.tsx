@@ -1,4 +1,4 @@
-import { MIN_BAG_SIZE, PACK_PRICE, RARITY_NAMES, REMOVAL_PRICE, STAGE_NAMES } from '../content/balance';
+import { MIN_BAG_SIZE, RARITY_NAMES, STAGE_NAMES } from '../content/balance';
 import { BOSSES } from '../content/bosses';
 import { consumableInfo } from '../content/consumables';
 import { TALISMANS } from '../content/talismans';
@@ -12,7 +12,7 @@ import {
   type RunAction,
   type RunState,
 } from '../core/run';
-import { rerollCost } from '../core/shop';
+import { packPrice, removalPrice, rerollCost } from '../core/shop';
 import { ConsumableSlots } from './ConsumableSlots';
 import { OfferCard } from './OfferCard';
 import { TalismanBar } from './TalismanBar';
@@ -35,7 +35,9 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
   const fullTalismans = talismanSlotsFull(run);
   const fullConsumables = consumableSlotsFull(run);
   const reroll = rerollCost(shop);
-  const canRemove = !shop.removalUsed && run.gold >= REMOVAL_PRICE && run.bag.length > MIN_BAG_SIZE;
+  const pack = packPrice(shop);
+  const removal = removalPrice(shop);
+  const canRemove = !shop.removalUsed && run.gold >= removal && run.bag.length > MIN_BAG_SIZE;
 
   const buyLabel = (sold: boolean, full: boolean, price: number) => (sold ? '판매 완료' : full ? '칸 가득' : `$${price}`);
 
@@ -107,16 +109,16 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
         <OfferCard
           emoji="🎁"
           name="블록 팩"
-          text="블록 3개 중 1개를 골라 가방에 넣어요"
-          action={shop.pack.bought ? '판매 완료' : `$${PACK_PRICE}`}
-          disabled={shop.pack.bought || run.gold < PACK_PRICE}
+          text="블록 3개 중 1개를 골라 가방에 넣어요 (가끔 강화된 블록)"
+          action={shop.pack.bought ? '판매 완료' : `$${pack}`}
+          disabled={shop.pack.bought || run.gold < pack}
           onAction={() => dispatch({ type: 'buyPack' })}
         />
         <OfferCard
           emoji="🗑️"
           name="블록 빼기"
           text={`가방에서 블록 1개를 빼요 (장터마다 1번, 최소 ${MIN_BAG_SIZE}개)`}
-          action={shop.removalUsed ? '사용함' : `$${REMOVAL_PRICE}`}
+          action={shop.removalUsed ? '사용함' : `$${removal}`}
           disabled={!canRemove}
           onAction={onRemoveBlock}
         />
@@ -133,7 +135,7 @@ export function ShopScreen({ run, dispatch, onTalismanTap, onConsumableTap, onBa
           가방
         </button>
         <button className="ctrl secondary" disabled={run.gold < reroll} onClick={() => dispatch({ type: 'reroll' })}>
-          리롤 ${reroll}
+          {reroll === 0 ? '리롤 무료' : `리롤 $${reroll}`}
         </button>
         <button className="ctrl" onClick={() => dispatch({ type: 'next' })}>
           다음 판 →

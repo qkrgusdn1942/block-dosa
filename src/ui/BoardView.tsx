@@ -1,6 +1,7 @@
 import type { RefObject } from 'react';
 import { BOARD_SIZE } from '../content/balance';
 import { SHAPES, type ShapeKind } from '../content/blocks';
+import { ENHANCEMENTS } from '../content/enhancements';
 import type { Board, Filled } from '../core/board';
 import type { BonusKind, ClearEvent } from '../core/stage';
 
@@ -20,8 +21,10 @@ interface Props {
   lastClear: ClearEvent | null;
   /** 🐍 이무기: 핸드가 끝나면 밀릴 줄 */
   shiftRow: number | null;
-  /** 🔨 망치로 부술 칸을 고르는 중 */
+  /** 🔨 망치·🧹 빗자루로 칸을 고르는 중 */
   onCellTap?: (index: number) => void;
+  /** 고를 수 있는 칸 (없으면 onCellTap이 있을 때 모든 칸) */
+  canTarget?: (index: number) => boolean;
   gridRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -31,7 +34,7 @@ function cellClasses(cell: Filled | null): string[] {
   if (!cell) return [];
   switch (cell.kind) {
     case 'block':
-      return ['filled', `k-${SHAPES[cell.shape].kind}`];
+      return ['filled', `k-${SHAPES[cell.shape].kind}`, ...(cell.enh ? ['enh', `enh-${cell.enh}`] : [])];
     case 'rock':
       return ['rock', ...(cell.cracked ? ['cracked'] : []), ...(cell.shadow ? ['shadow'] : [])];
     case 'water':
@@ -44,7 +47,7 @@ const gridPosition = (index: number) => ({
   gridColumn: (index % BOARD_SIZE) + 1,
 });
 
-export function BoardView({ board, bonus, preview, lastClear, shiftRow, onCellTap, gridRef }: Props) {
+export function BoardView({ board, bonus, preview, lastClear, shiftRow, onCellTap, canTarget, gridRef }: Props) {
   const removed = lastClear?.cleared.filter((c) => c.outcome === 'removed') ?? [];
 
   return (
@@ -56,13 +59,14 @@ export function BoardView({ board, bonus, preview, lastClear, shiftRow, onCellTa
           if (!cell && covered && preview) classes.push(preview.valid ? 'ghost' : 'bad', `k-${preview.kind}`);
           if (cell && covered && preview && !preview.valid) classes.push('bad');
           if (preview?.valid && preview.clearing.has(index)) classes.push('will-clear');
-          const targetable = onCellTap !== undefined && cell !== null && cell.kind !== 'water';
+          const targetable = onCellTap !== undefined && (canTarget?.(index) ?? true);
           if (targetable) classes.push('target');
           const mark = bonus[index];
           return (
             <div
               key={index}
               className={classes.join(' ')}
+              data-mark={cell?.kind === 'block' && cell.enh ? ENHANCEMENTS[cell.enh].mark : undefined}
               onPointerDown={targetable ? () => onCellTap(index) : undefined}
             >
               {mark && <span className={cell ? 'bonus covered' : 'bonus'}>{BONUS_EMOJI[mark]}</span>}

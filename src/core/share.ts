@@ -1,4 +1,6 @@
 import { PATTERNS, STAGE_NAMES } from '../content/balance';
+import { BAG_BY_ID } from '../content/bags';
+import { STAKES } from '../content/stakes';
 import { TALISMANS } from '../content/talismans';
 import { NO_PERKS, type RunPerks } from '../content/upgrades';
 import { dailyDateOf, formatDailyDate } from './daily';
@@ -28,7 +30,15 @@ function progressLine(run: RunState): string {
       ? `⛰️ ${course.antes}고개 완주 · 끝판 ${formatKo(run.stage.score)}`
       : '⛰️ 여덟 고개 완주! 이무기 봉인';
   }
-  return `⛰️ 고개 ${run.ante} · ${STAGE_NAMES[run.stageKind]}에서 멈춤`;
+  const stopped = `고개 ${run.ante} · ${STAGE_NAMES[run.stageKind]}에서 멈춤`;
+  return run.endless ? `⛰️ 여덟 고개 완주 → ♾️ ${stopped}` : `⛰️ ${stopped}`;
+}
+
+/** 기본 가방·난이도 1이 아니면 무엇으로 했는지 (코드 도전은 늘 기본으로 시작한다) */
+function setupLine(run: RunState): string | null {
+  if (run.bagType === 'basic' && run.stake <= 1) return null;
+  const bag = BAG_BY_ID[run.bagType];
+  return `${bag.emoji} ${bag.name} · 난이도 ${run.stake} ${STAKES[run.stake - 1].name}`;
 }
 
 export function shareText(run: RunState): string {
@@ -38,7 +48,8 @@ export function shareText(run: RunState): string {
       ? `🧱 블록 도사 · 오늘의 판 ${formatDailyDate(date)}${run.official ? '' : ' (연습)'}`
       : `🧱 블록 도사${run.mode === 'seed' ? ' · 도전장' : ''}`;
 
-  const lines = [title, progressLine(run)];
+  const setup = setupLine(run);
+  const lines = setup ? [title, setup, progressLine(run)] : [title, progressLine(run)];
   if (run.stats.bestClear > 0) {
     const pattern = run.stats.bestPattern ? ` (${PATTERNS[run.stats.bestPattern].name})` : '';
     lines.push(`💥 최고 한 방 ${formatKo(run.stats.bestClear)}${pattern}`);

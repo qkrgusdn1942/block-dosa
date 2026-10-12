@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { NO_UNLOCK_RECORDS } from '../src/content/unlocks';
 import { UPGRADES } from '../src/content/upgrades';
 import {
   buyUpgrade,
+  maxStake,
   meritTotal,
   newProfile,
   nextUpgradeCost,
   perksOf,
+  recordsOf,
   runMerit,
   settleRun,
   startDaily,
@@ -14,7 +17,7 @@ import {
 import { createRun, type RunState } from '../src/core/run';
 
 /** 고개 N에서 끝난 런 */
-function endedRun(ante: number, bosses: number, ending = false, records = { bestAnte: 0, endings: 0 }): RunState {
+function endedRun(ante: number, bosses: number, ending = false, records = NO_UNLOCK_RECORDS): RunState {
   const run = createRun('MERIT1', { start: { ante, kind: 'small' }, records });
   return { ...run, phase: ending ? 'ending' : 'over', stats: { ...run.stats, bossesBeaten: bosses, bestClear: 1234 } };
 }
@@ -108,13 +111,13 @@ describe('공덕', () => {
   });
 
   it('이미 가본 고개는 처음 달성 보너스가 없다', () => {
-    expect(meritTotal(runMerit(endedRun(3, 2, false, { bestAnte: 5, endings: 0 })))).toBe(40);
+    expect(meritTotal(runMerit(endedRun(3, 2, false, { ...NO_UNLOCK_RECORDS, bestAnte: 5 })))).toBe(40);
   });
 
   it('엔딩: 80 + 40 + 50 (+ 첫 엔딩)', () => {
-    const veteran = runMerit(endedRun(8, 8, true, { bestAnte: 8, endings: 1 }));
+    const veteran = runMerit(endedRun(8, 8, true, { ...NO_UNLOCK_RECORDS, bestAnte: 8, endings: 1 }));
     expect(meritTotal(veteran)).toBe(170);
-    const first = runMerit(endedRun(8, 8, true, { bestAnte: 8, endings: 0 }));
+    const first = runMerit(endedRun(8, 8, true, { ...NO_UNLOCK_RECORDS, bestAnte: 8 }));
     expect(meritTotal(first)).toBe(190);
   });
 
@@ -128,5 +131,39 @@ describe('공덕', () => {
     expect(once).toMatchObject({ merit: 80, totalMerit: 80, bestAnte: 3, runs: 1, bestClear: 1234, lastSettledRun: 'run-1' });
     expect(settleRun(once, run, 'run-1')).toBe(once);
     expect(settleRun(once, run, 'run-2').runs).toBe(2);
+  });
+});
+
+describe('v1.0 기록과 해금', () => {
+  it('대청소 수가 쌓이고, 해금 조건에 쓰는 기록으로 나온다', () => {
+    const ended = endedRun(2, 1);
+    const settled = settleRun(newProfile(), { ...ended, stats: { ...ended.stats, perfects: 4 } }, 'r1');
+    expect(settled.totalPerfects).toBe(4);
+    expect(recordsOf(settled)).toEqual({ bestAnte: 2, endings: 0, totalPerfects: 4, runs: 1 });
+  });
+
+  it('엔딩을 본 난이도 단계까지 열리고, 그다음 단계를 고를 수 있다', () => {
+    expect(maxStake(newProfile())).toBe(1);
+    const win: RunState = { ...endedRun(8, 8, true), stake: 3 };
+    const settled = settleRun({ ...newProfile(), stakeCleared: 2 }, win, 'r1');
+    expect(settled.stakeCleared).toBe(3);
+    expect(maxStake(settled)).toBe(4);
+    expect(maxStake({ ...newProfile(), stakeCleared: 8 })).toBe(8);
+    // 낮은 단계로 깨도 내려가지 않고, 코드 도전 엔딩은 단계를 열지 않는다
+    expect(settleRun({ ...newProfile(), stakeCleared: 5 }, win, 'r2').stakeCleared).toBe(5);
+    expect(settleRun(newProfile(), { ...win, mode: 'seed' }, 'r3').stakeCleared).toBe(0);
+  });
+
+  it('끝없는 모드에서 멈춰도 엔딩으로 친다', () => {
+    const endless: RunState = { ...endedRun(10, 10), endless: true };
+    const labels = runMerit(endless).map((line) => line.label);
+    expect(labels).toContain('엔딩');
+    expect(labels).toContain('첫 엔딩');
+    expect(labels).toContain('처음 고개 10 도달');
+    expect(settleRun(newProfile(), endless, 'r1').endings).toBe(1);
+  });
+
+  it('예전 프로필에는 없던 기록은 0부터', () => {
+    expect(newProfile()).toMatchObject({ totalPerfects: 0, stakeCleared: 0, lastSetup: null });
   });
 });

@@ -1,6 +1,18 @@
 import { BOARD_SIZE } from '../content/balance';
 import type { ShapeId } from '../content/blocks';
+import type { Enhancement } from '../content/enhancements';
 import type { Cell } from './pieces';
+
+/** 놓은 블록 칸 */
+export interface BlockCell {
+  kind: 'block';
+  shape: ShapeId;
+  enh?: Enhancement;
+  /** 어느 블록(손에 들었던 블록 uid)의 칸인지. 행운은 블록당 한 번, 유리는 블록째로 센다 */
+  piece?: number;
+  /** 가방 속 어떤 블록인지. 유리가 깨지면 가방에서 뺀다 */
+  bagId?: number;
+}
 
 /**
  * 채워진 칸
@@ -8,10 +20,10 @@ import type { Cell } from './pieces';
  * - rock: 바위. 줄 완성에 포함되지만 칩은 0. 한 번 지워지면 금이 가고, 두 번째에 부서진다
  * - water: 물에 잠긴 칸(물귀신). 놓을 수 없고, 줄 판정에서 빈칸도 채운 칸도 아니게 다룬다
  */
-export type Filled =
-  | { kind: 'block'; shape: ShapeId }
-  | { kind: 'rock'; cracked: boolean; shadow?: boolean }
-  | { kind: 'water' };
+export type Filled = BlockCell | { kind: 'rock'; cracked: boolean; shadow?: boolean } | { kind: 'water' };
+
+/** 블록을 놓을 때 칸에 함께 적는 정보 */
+export type BlockMeta = Omit<BlockCell, 'kind' | 'shape'>;
 
 /** 8×8 칸을 행 우선으로 펼친 배열. null = 빈칸 */
 export type Board = ReadonlyArray<Filled | null>;
@@ -48,9 +60,12 @@ export function placeCells(
   row: number,
   col: number,
   shape: ShapeId,
+  meta: BlockMeta = {},
 ): Board {
   const next = board.slice();
-  for (const [r, c] of cells) next[cellIndex(row + r, col + c)] = { kind: 'block', shape };
+  // 저장(JSON)을 작게: 없는 정보는 아예 적지 않는다
+  const extra = Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined));
+  for (const [r, c] of cells) next[cellIndex(row + r, col + c)] = { kind: 'block', shape, ...extra };
   return next;
 }
 
@@ -70,6 +85,17 @@ export function fullLines(board: Board): Lines {
 }
 
 export const lineCount = (lines: Lines) => lines.rows.length + lines.cols.length;
+
+const LAST = BOARD_SIZE - 1;
+const CORNERS = [cellIndex(0, 0), cellIndex(0, LAST), cellIndex(LAST, 0), cellIndex(LAST, LAST)];
+
+/** 네 모서리가 모두 찼는가 (🧭 사신도). 물에 잠긴 모서리는 줄 판정처럼 건너뛴다 */
+export const cornersFilled = (board: Board) => isFull(board, CORNERS);
+
+export type LineAxis = 'row' | 'col';
+
+/** 가로줄 하나 또는 세로줄 하나의 칸 번호 */
+export const axisLine = (axis: LineAxis, index: number) => (axis === 'row' ? rowIndices(index) : colIndices(index));
 
 /** 줄에 속한 칸 번호. 겹치는 칸은 한 번만, 위→아래·왼쪽→오른쪽 순서 */
 export function lineCells(lines: Lines): number[] {

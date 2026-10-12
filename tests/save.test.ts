@@ -87,6 +87,43 @@ describe('저장과 이어하기', () => {
     expect(next.phase).toBe('playing');
   });
 
+  it('v0.4 저장(버전 2)은 v1.0 구조로 올려서 이어할 수 있다', () => {
+    const storage = memoryStorage();
+    const store = createSaveStore(storage);
+    const old = JSON.parse(JSON.stringify(createRun('SAVE02')));
+    delete old.bagType;
+    delete old.stake;
+    delete old.endless;
+    old.records = { bestAnte: 3, endings: 0 };
+    for (const key of ['stash', 'stashEnabled', 'handSize', 'resolvedThisHand', 'placedThisHand', 'clearsThisHand']) {
+      delete old.stage[key];
+    }
+    old.stage.hand = [old.stage.hand[0], null, old.stage.hand[2]];
+    old.shop = {
+      rng: 1,
+      rerolls: 0,
+      talismanCount: 2,
+      talismans: [],
+      consumables: [],
+      pack: { bought: true, choices: ['dot', 'u', 'plus'], done: false },
+      removalUsed: false,
+    };
+    storage.setItem('block-dosa:run', JSON.stringify({ version: 2, id: 'v04-run', savedAt: 1, run: old }));
+
+    const loaded = store.loadRun()!;
+    expect(loaded.version).toBe(SAVE_VERSION);
+    expect(loaded.run).toMatchObject({ bagType: 'basic', stake: 1, endless: false });
+    expect(loaded.run.records).toEqual({ bestAnte: 3, endings: 0, totalPerfects: 0, runs: 0 });
+    expect(loaded.run.stage).toMatchObject({ stash: null, stashEnabled: false, handSize: 3, resolvedThisHand: 1 });
+    expect(loaded.run.shop).toMatchObject({ freeRerolls: 0, priceDelta: 0 });
+    expect(loaded.run.shop?.pack.choices).toEqual([{ shape: 'dot' }, { shape: 'u' }, { shape: 'plus' }]);
+    // 이어서 해도 문제없다
+    const playing = runReducer({ ...loaded.run, shop: null }, { type: 'begin' });
+    const slot = playing.stage.hand.findIndex(Boolean);
+    const moved = runReducer(playing, { type: 'stage', action: { type: 'place', slot, row: 0, col: 0 } });
+    expect(moved.stage.stats.placed).toBe(1);
+  });
+
   it('버전이 다르거나 깨진 저장은 무시한다', () => {
     const storage = memoryStorage();
     const store = createSaveStore(storage);

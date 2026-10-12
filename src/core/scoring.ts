@@ -7,6 +7,7 @@ import {
   type PatternLevels,
 } from '../content/balance';
 import type { ShapeKind } from '../content/blocks';
+import { CRYSTAL_CHIPS, FIRE_MULT, GLASS_MULT } from '../content/enhancements';
 
 /** 동시에 지운 가로·세로 줄 수로 족보를 정한다 */
 export function classifyPattern(rows: number, cols: number): PatternId | null {
@@ -16,6 +17,16 @@ export function classifyPattern(rows: number, cols: number): PatternId | null {
   if (total === 2) return rows === 1 ? 'cross' : 'double';
   if (total === 3) return 'triple';
   return 'quad';
+}
+
+/** 지운 칸 중 강화 칸 (🐻 불가사리 판에서는 모두 0) */
+export interface EnhanceTally {
+  crystal: number;
+  fire: number;
+  /** 행운이 터져서 붙는 배수 */
+  lucky: number;
+  /** 유리 블록 수 (블록당 ×1.5) */
+  glass: number;
 }
 
 export interface ClearContext {
@@ -35,6 +46,18 @@ export interface ClearContext {
   filledBefore: number;
   filledAfter: number;
   levels?: Partial<PatternLevels>;
+  /** 줄을 완성한 블록이 판 가장자리에 닿았는지 (🧱 돌담) */
+  pieceTouchesEdge?: boolean;
+  /** 직전 클리어의 족보 (💍 쌍가락지) */
+  previousPattern?: PatternId | null;
+  /** 지우기 직전 네 모서리가 모두 찼는지 (🧭 사신도) */
+  cornersFilled?: boolean;
+  /** 이번 핸드에서 판에 놓은 블록 수 / 그중 줄을 지운 수, 이번 것 포함 (🗿 장승) */
+  handPlaced?: number;
+  handClears?: number;
+  enhance?: EnhanceTally;
+  /** 👊 두억시니: 한 줄 클리어는 0점 */
+  singlesWorthless?: boolean;
 }
 
 export interface Tally {
@@ -42,7 +65,7 @@ export interface Tally {
   mult: number;
 }
 
-export type StepKind = 'pattern' | 'cells' | 'streak' | 'modifier' | 'star' | 'perfect';
+export type StepKind = 'pattern' | 'cells' | 'enhance' | 'streak' | 'modifier' | 'star' | 'glass' | 'perfect' | 'void';
 
 export interface ScoreStep extends Tally {
   kind: StepKind;
@@ -63,6 +86,9 @@ export interface ScoreResult extends Tally {
 /** 계산 4단계(부적)에 끼어드는 효과. 바꿀 게 없으면 null */
 export type ScoreModifier = (ctx: ClearContext, tally: Tally) => ScoreStep | null;
 
+/** 끝없는 모드에서 숫자가 끝없이 커져도 저장(JSON)이 깨지지 않게 상한을 둔다 */
+export const MAX_SCORE = 1e300;
+
 /** 계산 순서 → docs/02-scoring.md */
 export function scoreClear(ctx: ClearContext, modifiers: readonly ScoreModifier[] = []): ScoreResult {
   const pattern = classifyPattern(ctx.rows, ctx.cols);
@@ -81,8 +107,17 @@ export function scoreClear(ctx: ClearContext, modifiers: readonly ScoreModifier[
     steps.push(step);
   };
 
-  // 2. 지운 칸
+  // 2. 지운 칸, 강화 칸
   apply({ kind: 'cells', label: `칸 ${ctx.cellCount}개`, chips: tally.chips + ctx.cellCount * CELL_CHIPS, mult: tally.mult });
+  const enhance = ctx.enhance;
+  if (enhance && (enhance.crystal > 0 || enhance.fire > 0 || enhance.lucky > 0)) {
+    apply({
+      kind: 'enhance',
+      label: '강화 칸',
+      chips: tally.chips + enhance.crystal * CRYSTAL_CHIPS,
+      mult: tally.mult + enhance.fire * FIRE_MULT + enhance.lucky,
+    });
+  }
 
   // 3. 연속
   if (ctx.streak > 1) {
@@ -99,10 +134,19 @@ export function scoreClear(ctx: ClearContext, modifiers: readonly ScoreModifier[
   for (let i = 0; i < ctx.stars; i++) {
     apply({ kind: 'star', label: '별 칸', chips: tally.chips, mult: tally.mult * STAR_MULT });
   }
+  for (let i = 0; i < (enhance?.glass ?? 0); i++) {
+    apply({ kind: 'glass', label: '유리', chips: tally.chips, mult: tally.mult * GLASS_MULT });
+  }
   if (ctx.perfect) {
     apply({ kind: 'perfect', label: '대청소', chips: tally.chips, mult: tally.mult * PERFECT_CLEAR_MULT });
   }
 
   // 6. 점수
-  return { pattern, ...tally, total: Math.floor(tally.chips * tally.mult), steps };
+  let total = Math.floor(tally.chips * tally.mult);
+  if (ctx.singlesWorthless && pattern === 'single') {
+    apply({ kind: 'void', label: '두억시니', chips: tally.chips, mult: 0 });
+    total = 0;
+  }
+  if (!Number.isFinite(total) || total > MAX_SCORE) total = MAX_SCORE;
+  return { pattern, ...tally, total, steps };
 }

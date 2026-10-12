@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
+import { SHAPES } from '../src/content/blocks';
 import { REGULAR_BOSSES } from '../src/content/bosses';
 import { TALISMANS } from '../src/content/talismans';
 import { NO_PERKS, type RunPerks } from '../src/content/upgrades';
+import { emptyBoard } from '../src/core/board';
 import {
+  anteBase,
+  bossAt,
   courseOf,
   createRun,
   rollBosses,
+  rollRelics,
   runReducer,
   stageTarget,
+  talismanSlots,
   upcomingStage,
   type RunAction,
+  type RunStart,
   type RunState,
 } from '../src/core/run';
 import type { StageState } from '../src/core/stage';
@@ -110,7 +117,7 @@ describe('판 클리어와 보상', () => {
 
   it('판에서 얻은 보석 골드도 보상에 들어간다', () => {
     const run = clearStage(createRun('RUN001'), { goldEarned: 3 });
-    expect(run.reward?.find((line) => line.label.includes('보석'))?.gold).toBe(3);
+    expect(run.reward?.find((line) => line.label.includes('판에서 얻은 골드'))?.gold).toBe(3);
   });
 
   it('판에 실패하면 런 종료', () => {
@@ -191,18 +198,21 @@ describe('장터', () => {
     expect(opened.shop?.pack.choices).toHaveLength(3);
     const picked = runReducer(opened, { type: 'pickPack', index: 1 });
     expect(picked.bag).toHaveLength(19);
-    expect(picked.bag.at(-1)?.shape).toBe(opened.shop!.pack.choices![1]);
+    expect(picked.bag.at(-1)?.shape).toBe(opened.shop!.pack.choices![1].shape);
     expect(runReducer(picked, { type: 'pickPack', index: 0 })).toBe(picked);
   });
 
   it('블록 빼기: 장터마다 1번, 가방은 최소 10개', () => {
     const shop = inShop(10);
-    const removed = runReducer(shop, { type: 'removeBlock', shape: 'bar5' });
+    const bar5 = shop.bag.find((b) => b.shape === 'bar5')!;
+    const removed = runReducer(shop, { type: 'removeBlock', bagId: bar5.id });
+    expect(removed.gold).toBe(7);
     expect(removed.bag).toHaveLength(17);
     expect(removed.bag.some((b) => b.shape === 'bar5')).toBe(false);
-    expect(runReducer(removed, { type: 'removeBlock', shape: 'dot' })).toBe(removed);
+    expect(runReducer(removed, { type: 'removeBlock', bagId: 0 })).toBe(removed);
     const small = { ...inShop(10), bag: inShop(10).bag.slice(0, 10) };
-    expect(runReducer(small, { type: 'removeBlock', shape: 'dot' })).toBe(small);
+    expect(runReducer(small, { type: 'removeBlock', bagId: 0 })).toBe(small);
+    expect(runReducer(shop, { type: 'removeBlock', bagId: 999 })).toBe(shop);
   });
 
   it('장터에서 비전서를 쓰면 런의 족보 레벨이 오른다', () => {
@@ -271,7 +281,8 @@ describe('수련 효과', () => {
 });
 
 describe('오늘의 판 코스', () => {
-  const dailyAt = (ante: number) => createRun('D20261012', { mode: 'daily', start: { ante, kind: 'boss' } });
+  const dailyAt = (ante: number) =>
+    createRun('D20261012', { mode: 'daily', start: { ante, kind: 'boss', boss: 'dokkaebi' } });
 
   it('고개 3 요괴를 깨도 끝이 아니라 유품 → 장터 → 끝판', () => {
     const relic = runReducer(clearStage(dailyAt(3)), { type: 'collect' });
@@ -347,7 +358,206 @@ describe('요괴 판과 엔딩', () => {
   it('고개 8의 이무기를 깨면 엔딩', () => {
     const boss = atBoss(8);
     expect(boss.stage.boss).toBe('imugi');
-    const ending = runReducer(clearStage(boss), { type: 'collect' });
-    expect(ending.phase).toBe('ending');
+    const victory = runReducer(clearStage(boss), { type: 'collect' });
+    expect(victory.phase).toBe('victory');
+    expect(runReducer(victory, { type: 'finish' }).phase).toBe('ending');
+  });
+});
+
+describe('가방 종류', () => {
+  it('막대 가방: 막대 위주 18개, 🌀 바람개비를 들고 시작', () => {
+    const run = createRun('BAG001', { bagType: 'bars' });
+    expect(run.bag).toHaveLength(18);
+    expect(run.bag.filter((b) => SHAPES[b.shape].kind === 'bar')).toHaveLength(11);
+    expect(run.talismans.map((t) => t.id)).toEqual(['pinwheel']);
+    expect(run.stage.rotation).toBe(true);
+  });
+
+  it('네모 가방: ㅁ·큰ㅁ·직사각이 8개', () => {
+    const run = createRun('BAG001', { bagType: 'squares' });
+    expect(run.bag).toHaveLength(18);
+    expect(run.bag.filter((b) => SHAPES[b.shape].kind === 'square')).toHaveLength(8);
+  });
+
+  it('혼돈 가방: 모든 블록이 강화된 채 시작하고 부적 칸 −1. 같은 코드면 같은 강화', () => {
+    const run = createRun('BAG001', { bagType: 'chaos' });
+    expect(run.bag.every((b) => b.enh)).toBe(true);
+    expect(new Set(run.bag.map((b) => b.enh)).size).toBeGreaterThan(1);
+    expect(talismanSlots(run)).toBe(4);
+    expect(createRun('BAG001', { bagType: 'chaos' }).bag).toEqual(run.bag);
+  });
+});
+
+describe('난이도 단계', () => {
+  const at = (stake: number, start?: RunStart) => createRun('STAKE1', { stake, start });
+  const rocks = (run: RunState) => run.stage.board.filter((c) => c?.kind === 'rock').length;
+
+  it('행자(2): 판 1 클리어 보상이 없다', () => {
+    expect(clearStage(at(2)).reward![0]).toEqual({ label: '판 1 클리어 (난이도: 보상 없음)', gold: 0 });
+    expect(clearStage(at(1)).reward![0].gold).toBe(3);
+    expect(clearStage(at(2, { ante: 1, kind: 'big' })).reward![0].gold).toBe(4);
+  });
+
+  it('수행자(3): 판 1·판 2에 바위 +2, 요괴 판은 그대로', () => {
+    expect(rocks(at(1))).toBe(0);
+    expect(rocks(at(3))).toBe(2);
+    expect(rocks(at(3, { ante: 1, kind: 'boss', boss: 'dokkaebi' }))).toBe(0);
+  });
+
+  it('도인(4): 버리기 −1, 신선(8): 핸드도 −1', () => {
+    expect(at(4).stage.rules).toMatchObject({ hands: 5, discards: 1 });
+    expect(at(8).stage.rules).toMatchObject({ hands: 4, discards: 1 });
+  });
+
+  it('법사(5): 이자 상한 $3', () => {
+    const interest = (stake: number) =>
+      clearStage({ ...at(stake), gold: 50 }).reward!.find((line) => line.label.startsWith('이자'))?.gold;
+    expect(interest(4)).toBe(5);
+    expect(interest(5)).toBe(3);
+  });
+
+  it('도사(6): 요괴 판 목표 ×1.25', () => {
+    expect(stageTarget(1, 'boss', 'dokkaebi', 6)).toBe(375);
+    expect(stageTarget(1, 'small', null, 6)).toBe(150);
+    expect(at(6, { ante: 1, kind: 'boss', boss: 'dokkaebi' }).stage.rules.target).toBe(375);
+  });
+
+  it('진인(7): 장터 가격 +$1', () => {
+    const shop = { ...runReducer(clearStage(at(7)), { type: 'collect' }), gold: 20 };
+    expect(shop.shop!.consumables.every((offer) => offer.price === 4)).toBe(true);
+    expect(runReducer(shop, { type: 'buyPack' }).gold).toBe(15);
+  });
+});
+
+describe('끝없는 모드', () => {
+  const victory = () =>
+    runReducer(clearStage(createRun('ENDLS1', { start: { ante: 8, kind: 'boss' } })), { type: 'collect' });
+
+  it('고개 8 요괴를 깨면 끝낼지 계속할지 고른다', () => {
+    const run = victory();
+    expect(run.phase).toBe('victory');
+    expect(runReducer(run, { type: 'finish' }).phase).toBe('ending');
+    expect(runReducer(run, { type: 'next' })).toBe(run);
+  });
+
+  it('계속하면 유품 → 장터 → 고개 9 판 1', () => {
+    const relic = runReducer(victory(), { type: 'endless' });
+    expect(relic).toMatchObject({ endless: true, phase: 'relic' });
+    const shop = runReducer(relic, { type: 'skipRelic' });
+    expect(upcomingStage(shop)).toMatchObject({ ante: 9, kind: 'small', target: 240_000 });
+    expect(runReducer(shop, { type: 'next' })).toMatchObject({ ante: 9, stageKind: 'small', phase: 'preview' });
+  });
+
+  it('고개 9부터 목표는 고개마다 12까지 ×3, 16까지 ×5, 그 뒤 ×10', () => {
+    expect(anteBase(8)).toBe(80_000);
+    expect(anteBase(9)).toBe(240_000);
+    expect(anteBase(12)).toBe(80_000 * 3 ** 4);
+    expect(anteBase(13)).toBe(80_000 * 3 ** 4 * 5);
+    expect(anteBase(17)).toBe(80_000 * 3 ** 4 * 5 ** 4 * 10);
+  });
+
+  it('고개 9부터 요괴는 고개마다 새로 뽑고, 8의 배수 고개는 이무기', () => {
+    const run = createRun('ENDLS1');
+    const regular = REGULAR_BOSSES.map((b) => b.id);
+    for (let ante = 9; ante < 16; ante++) expect(regular).toContain(bossAt(run, ante));
+    expect(bossAt(run, 16)).toBe('imugi');
+    expect(bossAt(run, 3)).toBe(run.bosses[2]);
+  });
+
+  it('끝없는 모드에서는 이무기를 다시 깨도 계속 간다', () => {
+    const run = createRun('ENDLS1', { start: { ante: 16, kind: 'boss' } });
+    expect(run.endless).toBe(true);
+    expect(run.stage.boss).toBe('imugi');
+    expect(runReducer(clearStage(run), { type: 'collect' }).phase).toBe('relic');
+  });
+});
+
+describe('v1.0 유품과 장터', () => {
+  const seeds = Array.from({ length: 80 }, (_, i) => `REL${i}`);
+  const hasLegendary = (seed: string, ante: number) =>
+    rollRelics({ ...createRun(seed), ante }).some(
+      (offer) => offer.kind === 'talisman' && TALISMANS[offer.id].rarity === 'legendary',
+    );
+
+  it('고개 4부터 요괴 유품에 가끔 전설 부적이 섞인다', () => {
+    expect(seeds.some((seed) => hasLegendary(seed, 3))).toBe(false);
+    expect(seeds.some((seed) => hasLegendary(seed, 4))).toBe(true);
+    for (const seed of seeds.slice(0, 20)) {
+      const offers = rollRelics({ ...createRun(seed), ante: 6 });
+      expect(offers).toHaveLength(3);
+      const ids = offers.flatMap((o) => (o.kind === 'talisman' ? [o.id] : []));
+      expect(new Set(ids).size).toBe(2);
+    }
+  });
+
+  it('🔖 도장: 장터에서 가방 블록 1개를 강화한다', () => {
+    const run: RunState = { ...inShop(10), consumables: [{ kind: 'stamp', enh: 'gold' }] };
+    const stamped = runReducer(run, { type: 'stamp', index: 0, bagId: 5 });
+    expect(stamped.bag.find((b) => b.id === 5)?.enh).toBe('gold');
+    expect(stamped.consumables).toHaveLength(0);
+    expect(runReducer(run, { type: 'stamp', index: 0, bagId: 999 })).toBe(run);
+    expect(runReducer(run, { type: 'ink', index: 0, bagId: 5 })).toBe(run);
+    const playing: RunState = { ...run, phase: 'playing' };
+    expect(runReducer(playing, { type: 'stamp', index: 0, bagId: 5 })).toBe(playing);
+  });
+
+  it('🖌️ 먹: 가방 블록 1개를 강화까지 똑같이 하나 더', () => {
+    const base = inShop(10);
+    const bag = base.bag.map((b) => (b.id === 5 ? { ...b, enh: 'fire' as const } : b));
+    const run: RunState = { ...base, bag, consumables: [{ kind: 'ink' }] };
+    const inked = runReducer(run, { type: 'ink', index: 0, bagId: 5 });
+    expect(inked.bag).toHaveLength(19);
+    expect(inked.bag.at(-1)).toEqual({ id: run.nextId, shape: bag[5].shape, enh: 'fire' });
+    expect(inked.nextId).toBe(run.nextId + 1);
+  });
+
+  it('강화된 팩 블록은 강화된 채로 가방에 들어간다', () => {
+    const base = inShop(10);
+    const run: RunState = {
+      ...base,
+      shop: { ...base.shop!, pack: { bought: true, choices: [{ shape: 'u', enh: 'glass' }], done: false } },
+    };
+    expect(runReducer(run, { type: 'pickPack', index: 0 }).bag.at(-1)).toMatchObject({ shape: 'u', enh: 'glass' });
+  });
+
+  it('✂️ 엿장수 가위가 있으면 장터 첫 리롤이 무료', () => {
+    const reward = clearStage(createRun('SHOP01'), { talismans: [talisman('scissors', 70)] });
+    const shop = { ...runReducer(reward, { type: 'collect' }), gold: 10 };
+    expect(shop.shop!.freeRerolls).toBe(1);
+    const free = runReducer(shop, { type: 'reroll' });
+    expect(free.gold).toBe(10);
+    expect(runReducer(free, { type: 'reroll' }).gold).toBe(7);
+  });
+});
+
+describe('v1.0 판 결과', () => {
+  it('🪶 봉황 깃털: 판에 실패해도 깃털을 태워 그 판을 넘긴다. 봉인되면 못 쓴다', () => {
+    const run = createRun('PHNX01');
+    const failing: RunState = {
+      ...run,
+      phase: 'playing',
+      stage: { ...run.stage, talismans: [talisman('feather', 50)], handNumber: 5, hand: [dot(), null, null], board: emptyBoard(), bonus: {} },
+    };
+    const placeDot: RunAction = { type: 'stage', action: { type: 'place', slot: 0, row: 4, col: 4 } };
+    const revived = runReducer(failing, placeDot);
+    expect(revived.phase).toBe('reward');
+    expect(revived.talismans).toHaveLength(0);
+    expect(revived.reward![0].label).toContain('봉황');
+    expect(revived.history.at(-1)).toBe('close');
+    const sealed: RunState = { ...failing, stage: { ...failing.stage, sealedUid: 50 } };
+    expect(runReducer(sealed, placeDot).phase).toBe('over');
+  });
+
+  it('🔥 강철이 판은 보상·이자도 없고, 대나무는 그대로 자란다', () => {
+    const run = createRun('DRY001', { start: { ante: 2, kind: 'boss', boss: 'gangcheol' } });
+    const done = clearStage({ ...run, gold: 50 }, { talismans: [talisman('bamboo', 9)] });
+    expect(done.reward).toEqual([{ label: '🔥 강철이의 가뭄: 골드 없음', gold: 0 }]);
+    expect(done.talismans[0].counter).toBe(2);
+  });
+
+  it('판에서 깨진 유리 블록은 런의 가방에서도 사라진다', () => {
+    const run = createRun('GLASS1');
+    const done = clearStage(run, { bag: run.stage.bag.filter((b) => b.id !== 3) });
+    expect(done.bag).toHaveLength(17);
   });
 });

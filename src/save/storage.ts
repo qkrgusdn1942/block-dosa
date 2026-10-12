@@ -1,3 +1,5 @@
+import { HAND_SIZE } from '../content/balance';
+import { NO_UNLOCK_RECORDS } from '../content/unlocks';
 import { newProfile, PROFILE_VERSION, type Profile } from '../core/profile';
 import type { RunState } from '../core/run';
 
@@ -7,7 +9,7 @@ import type { RunState } from '../core/run';
  * 런 구조를 바꿔서 예전 저장을 못 읽게 되면 SAVE_VERSION을 올린다 (그 저장은 버린다).
  */
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 const RUN_KEY = 'block-dosa:run';
 const PROFILE_KEY = 'block-dosa:profile';
 
@@ -21,6 +23,7 @@ export interface SavedRun {
 /**
  * 예전 저장을 지금 구조로 올린다. 못 올리면 null
  * - 1 → 2 (v0.4): 런 종류·공식 여부·판 결과 기록·최고 한 방 족보·끝판 표시가 생김
+ * - 2 → 3 (v1.0): 가방 종류·난이도·끝없는 모드, 보관함·핸드 크기, 장터 무료 리롤·가격, 강화된 팩 블록, 해금 기록
  */
 function migrate(raw: RawSave): SavedRun | null {
   let { version, run } = raw;
@@ -34,6 +37,35 @@ function migrate(raw: RawSave): SavedRun | null {
       stage: { scoreAttack: false, ...run.stage, stats: { bestPattern: null, ...run.stage?.stats } },
     };
     version = 2;
+  }
+  if (version === 2 && run) {
+    const stage = run.stage ?? {};
+    const shop = run.shop;
+    run = {
+      bagType: 'basic',
+      stake: 1,
+      endless: false,
+      ...run,
+      records: { ...NO_UNLOCK_RECORDS, ...run.records },
+      shop: shop && {
+        freeRerolls: 0,
+        priceDelta: 0,
+        ...shop,
+        pack: { ...shop.pack, choices: shop.pack?.choices?.map((shape: string) => ({ shape })) ?? null },
+      },
+      stage: {
+        stash: null,
+        stashEnabled: false,
+        handSize: HAND_SIZE,
+        // 예전엔 손이 비어야 핸드가 끝났으니, 손을 떠난 블록 수 = 빈 칸 수
+        resolvedThisHand: HAND_SIZE - (stage.hand ?? []).filter(Boolean).length,
+        placedThisHand: 0,
+        clearsThisHand: 0,
+        ...stage,
+        lastClear: stage.lastClear && { gold: 0, lucky: 0, broken: 0, ...stage.lastClear },
+      },
+    };
+    version = 3;
   }
   if (version !== SAVE_VERSION || typeof raw.id !== 'string' || !run?.stage) return null;
   return { version, id: raw.id, savedAt: Number(raw.savedAt) || 0, run: run as RunState };

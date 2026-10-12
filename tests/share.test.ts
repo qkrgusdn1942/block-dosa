@@ -55,6 +55,15 @@ describe('결과 공유 텍스트', () => {
     expect(shareText(trained).split('\n').at(-1)).toBe('코드 K7Q2MX (수련 적용)');
   });
 
+  it('끝없는 모드에서 멈춤, 기본이 아닌 가방·난이도는 한 줄 더', () => {
+    const run = finished({ endless: true, ante: 11, stageKind: 'big', bagType: 'chaos', stake: 3 });
+    expect(shareText(run).split('\n').slice(0, 3)).toEqual([
+      '🧱 블록 도사',
+      '🌪️ 혼돈 가방 · 난이도 3 수행자',
+      '⛰️ 여덟 고개 완주 → ♾️ 고개 11 · 판 2에서 멈춤',
+    ]);
+  });
+
   it('코드 도전 런은 도전장 표시', () => {
     expect(shareText(finished({}, 'seed')).split('\n')[0]).toBe('🧱 블록 도사 · 도전장');
   });

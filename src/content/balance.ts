@@ -1,7 +1,12 @@
+import type { Consumable } from './consumables';
+
 /** 밸런스 수치. 모두 초기값 → docs/02-scoring.md, docs/07-economy.md, docs/08-difficulty.md */
 
 export const BOARD_SIZE = 8;
+/** 핸드마다 뽑는 블록 수 (🎁 덤이 있으면 +1) */
 export const HAND_SIZE = 3;
+/** 이만큼 놓거나 보따리에 넣으면 핸드가 끝난다 */
+export const PIECES_PER_HAND = 3;
 
 // 런 구조
 export const ANTE_COUNT = 8;
@@ -17,6 +22,17 @@ export const DAILY_ANTES = 3;
 export const ANTE_TARGETS: readonly number[] = [150, 400, 1_000, 2_500, 6_000, 15_000, 35_000, 80_000];
 /** 판 1, 판 2의 목표 배율. 요괴 판은 요괴마다 다름 (보통 ×2, 이무기 ×3) */
 export const STAGE_TARGET_MULT: Record<'small' | 'big', number> = { small: 1, big: 1.5 };
+
+/** 끝없는 모드: 고개 9부터 직전 고개 대비 목표 배율 [이 고개까지, 배율] */
+export const ENDLESS_GROWTH: ReadonlyArray<readonly [number, number]> = [
+  [12, 3],
+  [16, 5],
+  [Number.POSITIVE_INFINITY, 10],
+];
+
+/** 요괴 유품에 전설 부적이 섞이기 시작하는 고개와 확률 */
+export const RELIC_LEGENDARY_FROM_ANTE = 4;
+export const RELIC_LEGENDARY_CHANCE = 0.2;
 
 export interface StageRules {
   hands: number;
@@ -68,6 +84,15 @@ export const RELIC_RARITY_WEIGHTS: ReadonlyArray<readonly [Rarity, number]> = [
   ['rare', 5],
 ];
 export const CONSUMABLE_PRICE = 3;
+/** 장터 소모품 등장 비율 */
+export const SHOP_CONSUMABLE_WEIGHTS: ReadonlyArray<readonly [Consumable['kind'], number]> = [
+  ['scroll', 40],
+  ['hammer', 15],
+  ['fan', 12],
+  ['broom', 10],
+  ['stamp', 15],
+  ['ink', 8],
+];
 export const PACK_PRICE = 4;
 export const REMOVAL_PRICE = 3;
 export const REROLL_BASE = 3;

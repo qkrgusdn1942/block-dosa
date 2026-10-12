@@ -48,8 +48,8 @@ export const SHAPES: Record<ShapeId, ShapeDef> = {
 
 export const ALL_SHAPES = Object.keys(SHAPES) as ShapeId[];
 
-/** 장터 블록 팩에서 나오는 모양. ㄷ, 더하기는 아직 👹 도깨비 전용 */
-export const PACK_SHAPES: readonly ShapeId[] = ALL_SHAPES.filter((id) => id !== 'u' && id !== 'plus');
+/** 장터 블록 팩에서 나오는 모양 (v1.0부터 ㄷ, 더하기 포함) */
+export const PACK_SHAPES: readonly ShapeId[] = ALL_SHAPES;
 
 /** 기본 가방 18개 */
 export const STARTING_BAG: ReadonlyArray<readonly [ShapeId, number]> = [

@@ -1,13 +1,23 @@
-import { BOARD_SIZE } from './balance';
+import { BOARD_SIZE, type StageRules } from './balance';
 import { ALL_SHAPES } from './blocks';
 import { cellIndex, emptyCells, shiftRowRight, wouldCompleteLine } from '../core/board';
 import { extent, orientations } from '../core/pieces';
 import type { Rng } from '../core/rng';
 import type { StageState } from '../core/stage';
 
-/** 요괴 = 특수 규칙이 붙은 보스 판 → docs/09-obstacles.md (v0.2는 4종 + 이무기) */
+/** 요괴 = 특수 규칙이 붙은 보스 판 → docs/09-obstacles.md (일반 9종 + 이무기) */
 
-export type BossId = 'dokkaebi' | 'gumiho' | 'eodukssini' | 'mulgwishin' | 'imugi';
+export type BossId =
+  | 'dokkaebi'
+  | 'gumiho'
+  | 'eodukssini'
+  | 'mulgwishin'
+  | 'grimReaper'
+  | 'bulgasari'
+  | 'gangcheol'
+  | 'dueoksini'
+  | 'jangsanbeom'
+  | 'imugi';
 
 export interface BossDef {
   id: BossId;
@@ -22,10 +32,18 @@ export interface BossDef {
   final?: boolean;
   /** 판 시작 (바위·보너스 칸보다 먼저) */
   onStageStart?: (stage: StageState, rng: Rng) => StageState;
+  /** 부적·수련까지 반영한 핸드·버리기 수를 마지막에 바꾼다 */
+  adjustRules?: (rules: StageRules) => StageRules;
   /** 핸드를 막 뽑은 뒤 */
   onHandDraw?: (stage: StageState, rng: Rng) => StageState;
   /** 핸드가 끝난 뒤, 다음 핸드를 뽑기 전. 여기서 꽉 찬 줄은 이어서 지워진다 */
   onHandEnd?: (stage: StageState, rng: Rng) => StageState;
+  /** 블록 강화 효과를 끈다 */
+  disablesEnhancements?: boolean;
+  /** 이번 판에서 골드를 못 얻는다 */
+  drought?: boolean;
+  /** 한 줄 클리어는 점수 0 */
+  singlesWorthless?: boolean;
 }
 
 const WATER_ROWS = 2;
@@ -101,6 +119,56 @@ const defs: BossDef[] = [
         for (let c = 0; c < BOARD_SIZE; c++) board[cellIndex(r, c)] = { kind: 'water' };
       }
       return { ...stage, board };
+    },
+  },
+  {
+    id: 'grimReaper',
+    name: '저승사자',
+    emoji: '💀',
+    rule: '핸드 −1, 버리기 0',
+    minAnte: 3,
+    targetMult: 2,
+    adjustRules: (rules) => ({ ...rules, hands: Math.max(1, rules.hands - 1), discards: 0 }),
+  },
+  {
+    id: 'bulgasari',
+    name: '불가사리',
+    emoji: '🐻',
+    rule: '쇠를 먹는 괴물: 블록 강화 효과가 모두 꺼진다',
+    minAnte: 3,
+    targetMult: 2,
+    disablesEnhancements: true,
+  },
+  {
+    id: 'gangcheol',
+    name: '강철이',
+    emoji: '🔥',
+    rule: '가뭄을 부르는 용: 이번 판에서는 골드를 하나도 못 얻는다 (보상·이자 포함)',
+    minAnte: 2,
+    targetMult: 2,
+    drought: true,
+  },
+  {
+    id: 'dueoksini',
+    name: '두억시니',
+    emoji: '👊',
+    rule: '한 줄 클리어는 점수 0. 두 줄 이상 한꺼번에 지워야 점수가 들어온다',
+    minAnte: 3,
+    targetMult: 2,
+    singlesWorthless: true,
+  },
+  {
+    id: 'jangsanbeom',
+    name: '장산범',
+    emoji: '🐅',
+    rule: '핸드마다 블록 1개는 집어 들기 전까지 모양이 ?로 가려진다',
+    minAnte: 2,
+    targetMult: 2,
+    onHandDraw: (stage, rng) => {
+      const slots = stage.hand.flatMap((piece, i) => (piece ? [i] : []));
+      if (slots.length === 0) return stage;
+      const slot = slots[rng.int(slots.length)];
+      return { ...stage, hand: stage.hand.map((p, i) => (i === slot && p ? { ...p, hidden: true } : p)) };
     },
   },
   {

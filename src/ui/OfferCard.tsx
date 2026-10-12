@@ -8,13 +8,16 @@ interface Props {
   /** 버튼 글자: "$6", "받기", "판매 완료" 등 */
   action: string;
   disabled?: boolean;
+  /** 전설 부적처럼 눈에 띄게 */
+  highlight?: boolean;
   onAction: () => void;
 }
 
 /** 장터 진열, 요괴 유품에 쓰는 카드 */
-export function OfferCard({ emoji, name, tag, text, action, disabled, onAction }: Props) {
+export function OfferCard({ emoji, name, tag, text, action, disabled, highlight, onAction }: Props) {
+  const classes = ['offer', ...(disabled ? ['disabled'] : []), ...(highlight ? ['highlight'] : [])];
   return (
-    <div className={disabled ? 'offer disabled' : 'offer'}>
+    <div className={classes.join(' ')}>
       <div className="offer-emoji">{emoji}</div>
       <div className="offer-body">
         <div className="offer-name">

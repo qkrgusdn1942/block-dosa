@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.32"/>
+      <stop offset="0.08" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.87" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.88" stop-color="#000" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.2"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#f4ecdc"/>
+  <rect x="54" y="54" width="124" height="124" rx="20" fill="#3b7cad"/>
+  <rect x="54" y="54" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="194" y="54" width="124" height="124" rx="20" fill="#3b7cad"/>
+  <rect x="194" y="54" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="334" y="54" width="124" height="124" rx="20" fill="#3b7cad"/>
+  <rect x="334" y="54" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="54" y="194" width="124" height="124" rx="20" fill="#d3a02a"/>
+  <rect x="54" y="194" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="194" y="194" width="124" height="124" rx="20" fill="#d3a02a"/>
+  <rect x="194" y="194" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="334" y="194" width="124" height="124" rx="20" fill="#c9553c"/>
+  <rect x="334" y="194" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="54" y="334" width="124" height="124" rx="20" fill="#d3a02a"/>
+  <rect x="54" y="334" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="194" y="334" width="124" height="124" rx="20" fill="#d3a02a"/>
+  <rect x="194" y="334" width="124" height="124" rx="20" fill="url(#shade)"/>
+  <rect x="334" y="334" width="124" height="124" rx="20" fill="#e2d4b8"/>
+</svg>

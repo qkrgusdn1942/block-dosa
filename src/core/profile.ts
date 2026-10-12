@@ -1,7 +1,10 @@
 import { MERIT_ENDING, MERIT_FIRST, MERIT_PER_ANTE, MERIT_PER_BOSS, STAGE_NAMES } from '../content/balance';
+import type { BagType } from '../content/bags';
+import { MAX_STAKE } from '../content/stakes';
+import type { UnlockRecords } from '../content/unlocks';
 import { NO_PERKS, UPGRADE_BY_ID, UPGRADES, type RunPerks, type UpgradeId } from '../content/upgrades';
 import { dailyDateOf } from './daily';
-import { courseOf, type RunRecords, type RunState } from './run';
+import { courseOf, type RunState } from './run';
 import { shareText } from './share';
 
 /** 런 밖에서 계속 남는 것: 공덕, 수련, 기록 → docs/06-incremental.md */
@@ -27,6 +30,12 @@ export interface DailyRecord {
   official: DailyResult | null;
 }
 
+/** 새 런을 시작할 때 고르는 것 */
+export interface RunSetup {
+  bagType: BagType;
+  stake: number;
+}
+
 export interface Profile {
   version: number;
   /** 지금 가진 공덕 */
@@ -39,6 +48,12 @@ export interface Profile {
   endings: number;
   runs: number;
   bestClear: number;
+  /** 지금까지 한 대청소 수 (해금 조건) */
+  totalPerfects: number;
+  /** 엔딩을 본 가장 높은 난이도 단계 (0 = 아직). 그다음 단계까지 고를 수 있다 */
+  stakeCleared: number;
+  /** 지난번 새 런에서 고른 가방·난이도 */
+  lastSetup: RunSetup | null;
   /** 공덕을 이미 받은 마지막 런. 같은 런을 두 번 정산하지 않게 */
   lastSettledRun: string | null;
   /** 가장 최근 날짜의 오늘의 판 */
@@ -54,6 +69,9 @@ export const newProfile = (): Profile => ({
   endings: 0,
   runs: 0,
   bestClear: 0,
+  totalPerfects: 0,
+  stakeCleared: 0,
+  lastSetup: null,
   lastSettledRun: null,
   daily: null,
 });
@@ -81,7 +99,19 @@ export function perksOf(profile: Profile): RunPerks {
   }, NO_PERKS);
 }
 
-export const recordsOf = (profile: Profile): RunRecords => ({ bestAnte: profile.bestAnte, endings: profile.endings });
+export const recordsOf = (profile: Profile): UnlockRecords => ({
+  bestAnte: profile.bestAnte,
+  endings: profile.endings,
+  totalPerfects: profile.totalPerfects,
+  runs: profile.runs,
+});
+
+/** 고를 수 있는 가장 높은 난이도 단계 */
+export const maxStake = (profile: Profile) => Math.min(MAX_STAKE, profile.stakeCleared + 1);
+
+/** 엔딩을 봤는가: 고개 8 요괴를 깨고 끝냈거나, 끝없는 모드로 넘어갔거나. 오늘의 판 완주(끝판)는 엔딩이 아니다 */
+export const reachedEnding = (run: RunState) =>
+  (run.phase === 'ending' && !courseOf(run.mode).finale) || run.endless;
 
 /** 다음 단계 비용. 다 배웠으면 null */
 export function nextUpgradeCost(profile: Profile, id: UpgradeId): number | null {
@@ -108,8 +138,7 @@ export interface MeritLine {
 /** 끝난 런으로 받는 공덕. 런 시작 때의 기록과 비교해서 처음 달성도 센다 */
 export function runMerit(run: RunState): MeritLine[] {
   if (run.phase !== 'over' && run.phase !== 'ending') return [];
-  // 오늘의 판 완주(끝판)는 엔딩이 아니다
-  const ending = run.phase === 'ending' && !courseOf(run.mode).finale;
+  const ending = reachedEnding(run);
   const lines: MeritLine[] = [{ label: `고개 ${run.ante}까지`, merit: run.ante * MERIT_PER_ANTE }];
   const bosses = run.stats.bossesBeaten;
   if (bosses > 0) lines.push({ label: `요괴 ${bosses}마리`, merit: bosses * MERIT_PER_BOSS });
@@ -128,15 +157,18 @@ export function settleRun(profile: Profile, run: RunState, runId: string): Profi
   if (profile.lastSettledRun === runId) return profile;
   if (run.phase !== 'over' && run.phase !== 'ending') return profile;
   const merit = meritTotal(runMerit(run));
-  const fullEnding = run.phase === 'ending' && !courseOf(run.mode).finale;
+  const ending = reachedEnding(run);
   return {
     ...profile,
     merit: profile.merit + merit,
     totalMerit: profile.totalMerit + merit,
     bestAnte: Math.max(profile.bestAnte, run.ante),
-    endings: profile.endings + (fullEnding ? 1 : 0),
+    endings: profile.endings + (ending ? 1 : 0),
     runs: profile.runs + 1,
     bestClear: Math.max(profile.bestClear, run.stats.bestClear),
+    totalPerfects: profile.totalPerfects + run.stats.perfects,
+    // 난이도 단계는 새 런으로만 연다 (코드 도전은 늘 1단계)
+    stakeCleared: ending && run.mode === 'normal' ? Math.max(profile.stakeCleared, run.stake) : profile.stakeCleared,
     lastSettledRun: runId,
     daily: recordDaily(profile.daily, run),
   };
