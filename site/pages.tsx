@@ -54,6 +54,8 @@ import { WEEKLY_RULES } from '../src/content/weekly';
 
 /** 개인정보처리방침 시행일 */
 const PRIVACY_DATE = '2026-10-13';
+/** 네이버 서치어드바이저 소유 확인 (gaon.dev) */
+export const NAVER_SITE_VERIFICATION = 'c00e35e5aacbef4318225dac085379f53c2bb231';
 
 type Nav = 'home' | 'dosa' | 'guide' | 'talismans' | 'yokai' | 'updates' | 'privacy';
 
@@ -86,6 +88,7 @@ function Html({ page, children }: { page: PageDef; children: ReactNode }) {
         <title>{page.title}</title>
         <meta name="description" content={page.description} />
         <link rel="canonical" href={url} />
+        <meta name="naver-site-verification" content={NAVER_SITE_VERIFICATION} />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="가온" />
         <meta property="og:title" content={page.title} />

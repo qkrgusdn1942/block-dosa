@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { REGULAR_BOSSES } from '../src/content/bosses';
 import { CONTACT_EMAIL, HUB_URL } from '../src/content/site';
-import { PAGES, REGULAR_BOSS_MULT, renderSite } from '../site/pages';
+import { NAVER_SITE_VERIFICATION, PAGES, REGULAR_BOSS_MULT, renderSite } from '../site/pages';
 
 /** 소개 홈 gaon.dev: 깨진 링크·빠진 페이지 없이 */
 describe('소개 홈', () => {
@@ -14,6 +14,8 @@ describe('소개 홈', () => {
     for (const page of PAGES) expect(files[fileOf(page.path)]).toBeDefined();
     expect(files['404.html']).toContain('페이지를 찾을 수 없어요');
     expect(files['robots.txt']).toContain(`Sitemap: ${HUB_URL}/sitemap.xml`);
+    // 네이버 소유 확인은 첫 페이지 <head>에서 읽는다
+    expect(files['index.html']).toContain(`<meta name="naver-site-verification" content="${NAVER_SITE_VERIFICATION}"/>`);
   });
 
   it('사이트 안 링크는 모두 있는 페이지·파일로 간다', () => {
