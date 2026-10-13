@@ -839,6 +839,15 @@ button:disabled {
   color: var(--ink-soft);
 }
 
+/* 예전 주소의 이사 안내 */
+.title-screen.moved .title-head h1 {
+  font-size: 30px;
+}
+
+.moved-hint {
+  text-align: center;
+}
+
 .title-actions {
   display: flex;
   flex-direction: column;

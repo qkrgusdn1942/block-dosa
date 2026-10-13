@@ -23,6 +23,7 @@ import { LATEST_VERSION } from '../content/changelog';
 import { CollectionScreen } from './CollectionScreen';
 import { Game } from './Game';
 import { InfoScreen } from './InfoScreen';
+import { LinkImport } from './LinkImport';
 import { RunSetupScreen } from './RunSetupScreen';
 import { TitleScreen } from './TitleScreen';
 import { TrainingScreen } from './TrainingScreen';
@@ -133,7 +134,7 @@ export function App() {
     else launch('seed', code.seed, false, code.setup);
   };
 
-  /** 세이브 코드를 넣은 뒤 프로필·런을 다시 읽는다 */
+  /** 세이브 코드를 넣은 뒤(설정, 예전 주소에서 넘어온 링크) 프로필·런을 다시 읽는다 */
   const reload = () => {
     setProfile(saveStore.loadProfile());
     setSaved(saveStore.loadRun());
@@ -209,16 +210,19 @@ export function App() {
   })();
 
   return (
-    <ErrorBoundary
-      key={screen.kind === 'run' ? screen.id : screen.kind}
-      onReset={() => {
-        saveStore.clearRun();
-        setSaved(null);
-        setScreen({ kind: 'title' });
-      }}
-    >
-      {content}
-    </ErrorBoundary>
+    <>
+      <ErrorBoundary
+        key={screen.kind === 'run' ? screen.id : screen.kind}
+        onReset={() => {
+          saveStore.clearRun();
+          setSaved(null);
+          setScreen({ kind: 'title' });
+        }}
+      >
+        {content}
+      </ErrorBoundary>
+      <LinkImport onImported={reload} />
+    </>
   );
 }
 

@@ -4,7 +4,9 @@
 
 **플레이:** https://qkrgusdn1942.github.io/block-dosa/
 
-`main`에 push하면 GitHub Actions가 테스트·빌드한 뒤 GitHub Pages에 자동으로 배포한다 ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)).
+`main`에 push하면 두 곳에 자동으로 배포된다.
+- **Cloudflare (새 주소 `dosa.gaon.dev`):** Workers Builds가 `npm test && npm run build` 후 `dist/`를 올린다 ([wrangler.jsonc](wrangler.jsonc)).
+- **GitHub Pages (예전 주소):** GitHub Actions가 테스트·빌드·배포 ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)). 이사 안내를 켜면(`src/save/move.ts`의 `MOVE_NOTICE`) 새 주소로 안내만 한다 → [docs/12-tech.md](docs/12-tech.md)
 
 ## 실행
 
@@ -32,6 +34,7 @@ npm run build    # dist/에 배포용 정적 파일 생성
 - `boss`: `dokkaebi` · `gumiho` · `eodukssini` · `mulgwishin` · `grimReaper` · `bulgasari` · `gangcheol` · `dueoksini` · `jangsanbeom` · `imugi`
 - 방해 칸은 고개 4 판 2부터 나온다: `/?ante=4&stage=big`
 - `bag`: `basic` · `bars` · `squares` · `chaos`, `stake`: `1`~`8`
+- `/?moved`: 예전 주소에서 보이는 이사 안내 화면 미리 보기
 
 배포본은 홈 화면에 추가(PWA)할 수 있고, 한 번 열면 오프라인에서도 열린다. 서비스 워커는 배포본에서만 켜진다.
 
@@ -42,6 +45,7 @@ npm run build    # dist/에 배포용 정적 파일 생성
 | `src/core` | 게임 로직 (판, 블록, 점수, 판 진행, 런 진행, 장터, 시드 랜덤). DOM 없음 |
 | `src/content` | 데이터 (블록, 강화, 가방, 부적, 요괴, 소모품, 난이도, 해금, 밸런스 수치) |
 | `src/ui` | React 화면과 드래그 조작 |
+| `src/save` | 저장·불러오기·버전 이전, 세이브 코드, 주소 이사 |
 | `public` | 홈 화면 설치용 manifest, 아이콘, 서비스 워커 |
 | `tests` | Vitest 단위 테스트 |
 | `scripts` | 밸런스 확인용 봇 (`npm run sim`) |

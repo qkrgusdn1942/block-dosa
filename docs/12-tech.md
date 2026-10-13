@@ -10,7 +10,7 @@
 | 스타일 | CSS (CSS 변수로 테마) | 애니메이션은 CSS transition, keyframes |
 | 테스트 | Vitest | 점수 계산, 줄 지우기 단위 테스트 |
 | 저장 | localStorage | 서버 없이 |
-| 배포 | GitHub Pages ([qkrgusdn1942.github.io/block-dosa](https://qkrgusdn1942.github.io/block-dosa/)) | 무료 정적 호스팅. main에 push하면 Actions가 테스트·빌드·배포 |
+| 배포 | Cloudflare Workers 정적 파일 (`dosa.gaon.dev`, 도메인 `gaon.dev`) | 무료, 정적 파일 요청 무제한, 광고(상업 이용) 가능. main에 push하면 Workers Builds가 테스트·빌드·배포. 예전 주소 GitHub Pages는 이사 안내 → 아래 "주소 이사" |
 | 설치 | PWA (홈 화면 추가) ✅ | 앱처럼 실행, 오프라인 실행, 아이폰 저장 데이터 보호 |
 
 ## 코드 구조 (안)
@@ -26,7 +26,7 @@ src/
     rng.ts       시드 랜덤, 스트림 분리
   content/     데이터: 부적, 요괴, 블록, 목표 점수 표, 변경 사항(changelog.ts)
   ui/          React 화면, 드래그 입력, 연출
-  save/        저장, 불러오기, 버전 이전
+  save/        저장, 불러오기, 버전 이전, 세이브 코드, 주소 이사
 tests/         Vitest
 scripts/       밸런스 확인용 봇 (npm run sim)
 docs/          기획 문서
@@ -95,6 +95,19 @@ docs/          기획 문서
 ## 판 로직 메모 (v1.1)
 - 줄 점수는 한 곳(`scoreCleared`, src/core/stage.ts)에서 계산한다. 블록 놓기·🐍 이무기 밀기는 `resolveClears`로 꽉 찬 줄을 찾아서, 🧹 빗자루는 고른 줄을 비운 뒤 같은 함수를 부른다. 어디서 왔는지는 `ClearSource`(piece / shift / broom)로 구분한다.
 - ↩ 되돌리기: 블록을 놓을 때 놓기 직전 판 상태(`StageSnapshot`, 그 안의 되돌리기는 뺌)를 `stage.undo`에 넣는다. 놓기만 이 상태를 남기고, 다른 행동(🐅 가린 블록 드러내기 포함)은 비운다. 횟수는 `stage.undoLeft` (판마다 `FREE_UNDOS` = 1).
+
+## 주소 이사 (v1.1.1)
+광고를 붙이려면 상업 이용이 되는 호스팅이 필요해서(GitHub Pages는 사업용 금지) Cloudflare로 옮긴다. 도메인 `gaon.dev`는 Cloudflare에서 샀고, 루트는 소개 홈, 게임은 `dosa.gaon.dev`.
+
+| 항목 | 내용 |
+|---|---|
+| Cloudflare 설정 | `wrangler.jsonc`: Worker 이름 `block-dosa`, `dist/`만 올림(서버 코드 없음). 빌드 명령 `npm test && npm run build`, 배포 명령 `npx wrangler deploy`(기본값), Node 버전은 `.nvmrc`(22) |
+| 도메인 연결 | `dosa.gaon.dev`는 대시보드의 Worker → Settings → Domains & Routes에서 붙인다. 자동 빌드 토큰에 DNS 권한이 없어서 설정 파일에 넣지 않는다 |
+| 기록 옮기기 | 브라우저 저장은 주소마다 따로라 그냥 옮기면 기록이 사라진다. 예전 주소의 이사 안내가 세이브 코드를 만들어 `https://dosa.gaon.dev/#import=코드`로 넘기고, 새 주소는 확인을 받고 넣는다 (`src/save/move.ts`, `src/ui/MovedScreen.tsx`, `src/ui/LinkImport.tsx`). 코드는 # 뒤라 서버로 가지 않고, 예전 주소의 기록은 지우지 않는다 |
+| 순서 | ① 설정 파일을 올리고 Cloudflare에 저장소를 연결해 새 주소가 뜨는지 확인 ② `src/save/move.ts`의 `MOVE_NOTICE`를 켜서 배포하면 예전 주소가 이사 안내로 바뀐다 |
+
+- 홈 화면에 설치한 사람은 새 주소에서 다시 설치해야 한다 (설치도 주소마다 따로).
+- 예전 주소(GitHub Pages)는 같은 코드를 그대로 배포하고, 주소를 보고 이사 안내만 띄운다.
 
 ## 성능 원칙
 - 실시간 게임 루프 없음. 상태가 바뀔 때만 다시 그린다.

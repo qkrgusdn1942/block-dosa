@@ -1,0 +1,13 @@
+{
+  // Cloudflare Workers 배포 → docs/12-tech.md
+  // 정적 파일만 올린다 (서버 코드 없음). 빌드 결과 dist/ 를 그대로 서빙하고, 정적 파일 요청은 무료·무제한
+  // Cloudflare 대시보드의 Worker 이름도 block-dosa 로 맞춘다
+  "name": "block-dosa",
+  "compatibility_date": "2026-10-13",
+  "assets": {
+    "directory": "./dist"
+  },
+  // dosa.gaon.dev 는 대시보드에서 연결한다 (빌드 토큰에 DNS 권한이 없어서)
+  // *.workers.dev 주소는 새 주소가 뜨는지 처음 확인하는 데 쓴다
+  "workers_dev": true
+}
