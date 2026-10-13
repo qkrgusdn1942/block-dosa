@@ -115,7 +115,7 @@ docs/          기획 문서
 |---|---|
 | 만드는 법 | `npm run site`: `site/build.mjs`가 Vite로 `site/pages.tsx`를 읽어 `site/dist`에 정적 페이지를 쓴다. 게임 데이터(`src/content`)를 그대로 쓰므로 수치·업데이트 소식이 게임과 늘 같다 |
 | 페이지 | 홈, 블록 도사 소개, 게임 방법, 부적 도감, 요괴와 방해 칸, 업데이트 소식, 개인정보처리방침, 404, robots.txt, sitemap.xml. 깨진 링크·빠진 페이지는 `tests/site.test.ts`가 잡는다 |
-| 배포 | 같은 저장소에서 Worker `gaon`을 따로: 빌드 명령 `npm test && npm run site`, 배포 명령 `npx wrangler deploy --config site/wrangler.jsonc`. `gaon.dev`는 대시보드에서 연결 |
+| 배포 | 같은 저장소에서 Worker `gaon-home`을 따로. 루트 디렉터리 `site`(Cloudflare가 거기의 `wrangler.jsonc` 이름과 Worker 이름을 맞춰 보고, 다르면 이름을 바꾸는 PR을 만든다. Node 버전은 `site/.nvmrc`), 빌드 명령 `cd .. && npm ci && npm test && npm run site`, 배포 명령 `npx wrangler deploy --config wrangler.jsonc`. `gaon.dev`는 대시보드에서 연결. 저장소 가져오기 화면에서 만들다 실패해 `gaon` 이름이 잡혀 있어서, "Hello World"로 Worker를 먼저 만든 뒤 Settings → Build에서 저장소를 연결했다 |
 | 링크 미리보기 | 게임·소개 홈 모두 og 태그. 그림 `public/og.png`(1200×630)는 `site/og.svg`를 그린 것 (아래) |
 | 검색 | 게임 `index.html`에 설명·대표 주소(canonical)·자바스크립트 없이 보이는 안내(noscript). 게임과 소개 홈 각각 robots.txt·sitemap.xml. 게임 화면은 자바스크립트로 그려서 검색에 잡힐 글은 소개 홈 페이지들이 맡는다 |
 | 문의 메일 | `contact@gaon.dev` → Cloudflare 이메일 라우팅으로 운영자 메일에 넘긴다 (`src/content/site.ts`) |
