@@ -39,7 +39,7 @@ import { CHANGE_LABELS, RELEASES } from '../src/content/changelog';
 import { consumableInfo, type Consumable } from '../src/content/consumables';
 import { ENHANCEMENT_IDS, ENHANCEMENTS } from '../src/content/enhancements';
 import { OBSTACLE_IDS, OBSTACLES } from '../src/content/obstacles';
-import { CONTACT_EMAIL, GAME_URL, HUB_URL } from '../src/content/site';
+import { ADSENSE_CLIENT, CONTACT_EMAIL, GAME_URL, HUB_URL } from '../src/content/site';
 import { SKIP_REWARD_IDS, SKIP_REWARDS } from '../src/content/skips';
 import { STAKES } from '../src/content/stakes';
 import { TALISMAN_IDS, TALISMANS } from '../src/content/talismans';
@@ -102,6 +102,12 @@ function Html({ page, children }: { page: PageDef; children: ReactNode }) {
         <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="stylesheet" href="/style.css" />
+        {/* 구글 애드센스 (승인 전에는 광고가 나오지 않는다) */}
+        <script
+          async
+          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
+          crossOrigin="anonymous"
+        />
       </head>
       <body>
         <header className="top">
@@ -745,6 +751,8 @@ export function renderSite(): Record<string, string> {
   for (const page of [...PAGES, notFound]) files[fileOf(page.path)] = render(page);
 
   files['robots.txt'] = `User-agent: *\nAllow: /\n\nSitemap: ${HUB_URL}/sitemap.xml\n`;
+  // 루트 도메인의 ads.txt가 하위 주소(dosa.gaon.dev)까지 함께 맡는다
+  files['ads.txt'] = `google.com, ${ADSENSE_CLIENT.replace(/^ca-/, '')}, DIRECT, f08c47fec0942fa0\n`;
   files['sitemap.xml'] =
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +

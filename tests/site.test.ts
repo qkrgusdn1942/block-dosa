@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { REGULAR_BOSSES } from '../src/content/bosses';
-import { CONTACT_EMAIL, HUB_URL } from '../src/content/site';
+import { ADSENSE_CLIENT, CONTACT_EMAIL, HUB_URL } from '../src/content/site';
 import { NAVER_SITE_VERIFICATION, PAGES, REGULAR_BOSS_MULT, renderSite } from '../site/pages';
 
 /** 소개 홈 gaon.dev: 깨진 링크·빠진 페이지 없이 */
@@ -36,6 +36,11 @@ describe('소개 홈', () => {
       expect(page.description.length).toBeGreaterThan(10);
     }
     expect(new Set(PAGES.map((page) => page.title)).size).toBe(PAGES.length);
+  });
+
+  it('애드센스: 모든 페이지 <head>에 코드, 루트에 ads.txt', () => {
+    for (const page of PAGES) expect(files[fileOf(page.path)]).toContain(`adsbygoogle.js?client=${ADSENSE_CLIENT}`);
+    expect(files['ads.txt']).toBe('google.com, pub-6014252296027047, DIRECT, f08c47fec0942fa0\n');
   });
 
   it('개인정보처리방침: 연락처와 광고 쿠키 안내', () => {

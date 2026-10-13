@@ -119,7 +119,7 @@ docs/          기획 문서
 | 링크 미리보기 | 게임·소개 홈 모두 og 태그. 그림 `public/og.png`(1200×630)는 `site/og.svg`를 그린 것 (아래) |
 | 검색 | 게임 `index.html`에 설명·대표 주소(canonical)·자바스크립트 없이 보이는 안내(noscript). 게임과 소개 홈 각각 robots.txt·sitemap.xml. 게임 화면은 자바스크립트로 그려서 검색에 잡힐 글은 소개 홈 페이지들이 맡는다 |
 | 문의 메일 | `contact@gaon.dev` → Cloudflare 이메일 라우팅으로 운영자 메일에 넘긴다 (`src/content/site.ts`) |
-| 광고 | 애드센스 승인 뒤 `ads.txt`(게시자 ID)를 소개 홈 루트에 둔다 |
+| 광고 | 애드센스 코드는 소개 홈 모든 페이지 `<head>`, `ads.txt`는 소개 홈 루트 (게시자 ID는 `src/content/site.ts`의 `ADSENSE_CLIENT`). 루트의 ads.txt가 `dosa.gaon.dev`까지 맡는다. 게임 안 광고 자리는 게임물관리위원회 답을 받은 뒤 |
 
 - `og.png` 만들기: `site/og.svg`를 1200 정사각 viewBox 가운데(아래로 285)에 넣은 SVG로 `qlmanage -t -s 1200`을 돌린 뒤 `sips --cropToHeightWidth 630 1200`으로 자른다. qlmanage는 가로로 긴 SVG를 확대해서 그리기 때문.
 
