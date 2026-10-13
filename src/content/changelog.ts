@@ -24,6 +24,28 @@ export const CHANGE_LABELS: Record<ChangeKind, string> = { up: '상향', down: '
 
 export const RELEASES: readonly Release[] = [
   {
+    version: 'v1.1.2',
+    date: '2026-10-13',
+    title: '공유하면 게임 주소가 같이 가요',
+    sections: [
+      {
+        title: '친구·편의',
+        lines: [
+          {
+            kind: 'change',
+            target: '📤 결과 공유',
+            text: '글·이미지 끝에 dosa.gaon.dev 주소가 붙어요. 카톡에서는 링크 미리보기도 떠요',
+          },
+          {
+            kind: 'new',
+            target: '📖 게임 소개 페이지',
+            text: 'gaon.dev/block-dosa 에 게임 방법·부적 도감·요괴·업데이트 소식',
+          },
+        ],
+      },
+    ],
+  },
+  {
     version: 'v1.1.1',
     date: '2026-10-13',
     title: '새 주소로 이사했어요',

@@ -1,5 +1,6 @@
 import { PATTERNS, STAGE_NAMES } from '../content/balance';
 import { BAG_BY_ID } from '../content/bags';
+import { GAME_URL } from '../content/site';
 import { STAKES } from '../content/stakes';
 import { TALISMANS } from '../content/talismans';
 import { NO_PERKS, type RunPerks } from '../content/upgrades';
@@ -75,5 +76,7 @@ export function shareText(run: RunState): string {
   if (run.history.length > 0) lines.push(squares(run.history));
   if (run.talismans.length > 0) lines.push(run.talismans.map((t) => TALISMANS[t.id].emoji).join(''));
   lines.push(codeLine(run));
+  // 받은 친구가 바로 들어올 수 있게 (카톡에서는 링크 미리보기도 붙는다)
+  lines.push(GAME_URL);
   return lines.join('\n');
 }

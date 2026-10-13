@@ -37,6 +37,7 @@ describe('결과 공유 텍스트', () => {
         '🟩🟩🟨 🟩🟩🟩 🟩🟨🟩',
         '🏮🐯',
         '코드 D20261012',
+        'https://dosa.gaon.dev',
       ].join('\n'),
     );
   });
@@ -51,9 +52,10 @@ describe('결과 공유 텍스트', () => {
     expect(text[0]).toBe('🧱 블록 도사');
     expect(text[1]).toBe('⛰️ 고개 2 · 판 2에서 멈춤');
     expect(text[3]).toBe('🟩🟩🟨 🟩🟥');
-    expect(text.at(-1)).toBe('코드 K7Q2MX');
+    expect(text.at(-2)).toBe('코드 K7Q2MX');
+    expect(text.at(-1)).toBe('https://dosa.gaon.dev');
     const trained = { ...run, perks: { ...NO_PERKS, startGold: 2 } };
-    expect(shareText(trained).split('\n').at(-1)).toBe('코드 K7Q2MX (수련 적용)');
+    expect(shareText(trained).split('\n').at(-2)).toBe('코드 K7Q2MX (수련 적용)');
   });
 
   it('끝없는 모드에서 멈춤, 기본이 아닌 가방·난이도는 한 줄 더', () => {
@@ -71,12 +73,12 @@ describe('결과 공유 텍스트', () => {
     expect(text[0]).toBe('🧱 블록 도사 · 주간 도전 10/12~10/18');
     expect(text[1]).toContain(WEEKLY_RULE_BY_ID[run.rule!].name);
     expect(text).toContain('⬜🟩🟥');
-    expect(text.at(-1)).toBe('코드 W20261012');
+    expect(text.at(-2)).toBe('코드 W20261012');
   });
 
   it('기본이 아닌 가방·난이도는 코드에도 붙는다', () => {
     const run = finished({ bagType: 'chaos', stake: 3 });
-    expect(shareText(run).split('\n').at(-1)).toBe('코드 K7Q2MX-H3');
+    expect(shareText(run).split('\n').at(-2)).toBe('코드 K7Q2MX-H3');
   });
 
   it('코드 도전 런은 도전장 표시', () => {

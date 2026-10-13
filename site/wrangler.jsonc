@@ -1,0 +1,13 @@
+{
+  // 소개 홈 gaon.dev → docs/12-tech.md
+  // 게임과 같은 저장소에서 따로 배포한다: 빌드 명령 npm test && npm run site, 배포 명령 npx wrangler deploy --config site/wrangler.jsonc
+  // Cloudflare 대시보드의 Worker 이름도 gaon 으로 맞추고, gaon.dev 는 대시보드에서 연결한다
+  "name": "gaon",
+  "compatibility_date": "2026-10-13",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  },
+  "workers_dev": false,
+  "preview_urls": false
+}

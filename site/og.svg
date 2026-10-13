@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.32"/>
+      <stop offset="0.08" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.87" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.88" stop-color="#000" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.2"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#f4ecdc"/>
+  <rect x="110" y="135" width="108" height="108" rx="18" fill="#3b7cad"/><rect x="110" y="135" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="234" y="135" width="108" height="108" rx="18" fill="#3b7cad"/><rect x="234" y="135" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="358" y="135" width="108" height="108" rx="18" fill="#3b7cad"/><rect x="358" y="135" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="110" y="259" width="108" height="108" rx="18" fill="#d3a02a"/><rect x="110" y="259" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="234" y="259" width="108" height="108" rx="18" fill="#d3a02a"/><rect x="234" y="259" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="358" y="259" width="108" height="108" rx="18" fill="#c9553c"/><rect x="358" y="259" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="110" y="383" width="108" height="108" rx="18" fill="#d3a02a"/><rect x="110" y="383" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="234" y="383" width="108" height="108" rx="18" fill="#d3a02a"/><rect x="234" y="383" width="108" height="108" rx="18" fill="url(#shade)"/><rect x="358" y="383" width="108" height="108" rx="18" fill="#e2d4b8"/>
+  <g font-family="Apple SD Gothic Neo, AppleSDGothicNeo-Bold, sans-serif" fill="#2b241c">
+    <text x="560" y="250" font-size="104" font-weight="800" letter-spacing="-3">블록 도사</text>
+    <text x="564" y="330" font-size="42" font-weight="700" fill="#5c5245">블록 퍼즐 × 로그라이크</text>
+    <text x="564" y="398" font-size="32" font-weight="500" fill="#7a6e5f">요괴가 막은 여덟 고개를 블록으로 넘어라</text>
+    <text x="564" y="492" font-size="34" font-weight="700" fill="#3b7cad">dosa.gaon.dev</text>
+  </g>
+</svg>

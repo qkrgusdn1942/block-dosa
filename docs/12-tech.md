@@ -27,6 +27,7 @@ src/
   content/     데이터: 부적, 요괴, 블록, 목표 점수 표, 변경 사항(changelog.ts)
   ui/          React 화면, 드래그 입력, 연출
   save/        저장, 불러오기, 버전 이전, 세이브 코드, 주소 이사
+site/          소개 홈 gaon.dev (게임 데이터로 정적 페이지를 만든다)
 tests/         Vitest
 scripts/       밸런스 확인용 봇 (npm run sim)
 docs/          기획 문서
@@ -108,6 +109,19 @@ docs/          기획 문서
 
 - 홈 화면에 설치한 사람은 새 주소에서 다시 설치해야 한다 (설치도 주소마다 따로).
 - 예전 주소(GitHub Pages)는 같은 코드를 그대로 배포하고, 주소를 보고 이사 안내만 띄운다.
+
+## 소개 홈 gaon.dev와 검색 (v1.1.2)
+| 항목 | 내용 |
+|---|---|
+| 만드는 법 | `npm run site`: `site/build.mjs`가 Vite로 `site/pages.tsx`를 읽어 `site/dist`에 정적 페이지를 쓴다. 게임 데이터(`src/content`)를 그대로 쓰므로 수치·업데이트 소식이 게임과 늘 같다 |
+| 페이지 | 홈, 블록 도사 소개, 게임 방법, 부적 도감, 요괴와 방해 칸, 업데이트 소식, 개인정보처리방침, 404, robots.txt, sitemap.xml. 깨진 링크·빠진 페이지는 `tests/site.test.ts`가 잡는다 |
+| 배포 | 같은 저장소에서 Worker `gaon`을 따로: 빌드 명령 `npm test && npm run site`, 배포 명령 `npx wrangler deploy --config site/wrangler.jsonc`. `gaon.dev`는 대시보드에서 연결 |
+| 링크 미리보기 | 게임·소개 홈 모두 og 태그. 그림 `public/og.png`(1200×630)는 `site/og.svg`를 그린 것 (아래) |
+| 검색 | 게임 `index.html`에 설명·대표 주소(canonical)·자바스크립트 없이 보이는 안내(noscript). 게임과 소개 홈 각각 robots.txt·sitemap.xml. 게임 화면은 자바스크립트로 그려서 검색에 잡힐 글은 소개 홈 페이지들이 맡는다 |
+| 문의 메일 | `contact@gaon.dev` → Cloudflare 이메일 라우팅으로 운영자 메일에 넘긴다 (`src/content/site.ts`) |
+| 광고 | 애드센스 승인 뒤 `ads.txt`(게시자 ID)를 소개 홈 루트에 둔다 |
+
+- `og.png` 만들기: `site/og.svg`를 1200 정사각 viewBox 가운데(아래로 285)에 넣은 SVG로 `qlmanage -t -s 1200`을 돌린 뒤 `sips --cropToHeightWidth 630 1200`으로 자른다. qlmanage는 가로로 긴 SVG를 확대해서 그리기 때문.
 
 ## 성능 원칙
 - 실시간 게임 루프 없음. 상태가 바뀔 때만 다시 그린다.

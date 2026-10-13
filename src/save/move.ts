@@ -4,7 +4,9 @@
  * 코드는 # 뒤에 붙여서 서버로 보내지지 않는다
  */
 
-export const NEW_SITE = 'https://dosa.gaon.dev/';
+import { GAME_URL } from '../content/site';
+
+export const NEW_SITE = `${GAME_URL}/`;
 
 /** 예전 주소에서 이사 안내를 띄운다 (새 주소가 잘 뜨는 걸 확인한 뒤 v1.1.1에서 켬) */
 export const MOVE_NOTICE = true;

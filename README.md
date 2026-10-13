@@ -16,6 +16,7 @@ npm run dev      # 개발 서버 (http://localhost:5173)
 npm test         # 게임 로직 테스트
 npm run sim      # 봇이 런을 돌려 고개별 통과율 확인 (SIM_RUNS=500 npm run sim)
 npm run build    # dist/에 배포용 정적 파일 생성
+npm run site     # 소개 홈 gaon.dev를 site/dist에 생성 (게임 데이터로 만든 정적 페이지)
 ```
 
 폰에서 해보려면 컴퓨터와 같은 와이파이에 연결한 뒤, `npm run dev` 실행 시 터미널에 나오는 `Network:` 주소로 접속한다.
@@ -49,4 +50,5 @@ npm run build    # dist/에 배포용 정적 파일 생성
 | `public` | 홈 화면 설치용 manifest, 아이콘, 서비스 워커 |
 | `tests` | Vitest 단위 테스트 |
 | `scripts` | 밸런스 확인용 봇 (`npm run sim`) |
+| `site` | 소개 홈 gaon.dev: 게임 방법·부적 도감·요괴·업데이트 소식·개인정보처리방침 ([docs/12-tech.md](docs/12-tech.md)) |
 | `docs` | 기획 문서 |
