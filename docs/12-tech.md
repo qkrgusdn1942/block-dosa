@@ -104,7 +104,7 @@ docs/          기획 문서
 | Cloudflare 설정 | `wrangler.jsonc`: Worker 이름 `block-dosa`, `dist/`만 올림(서버 코드 없음). 빌드 명령 `npm test && npm run build`, 배포 명령 `npx wrangler deploy`(기본값), Node 버전은 `.nvmrc`(22) |
 | 도메인 연결 | `dosa.gaon.dev`는 대시보드의 Worker → Settings → Domains & Routes에서 붙인다. 자동 빌드 토큰에 DNS 권한이 없어서 설정 파일에 넣지 않는다 |
 | 기록 옮기기 | 브라우저 저장은 주소마다 따로라 그냥 옮기면 기록이 사라진다. 예전 주소의 이사 안내가 세이브 코드를 만들어 `https://dosa.gaon.dev/#import=코드`로 넘기고, 새 주소는 확인을 받고 넣는다 (`src/save/move.ts`, `src/ui/MovedScreen.tsx`, `src/ui/LinkImport.tsx`). 코드는 # 뒤라 서버로 가지 않고, 예전 주소의 기록은 지우지 않는다 |
-| 순서 | ① 설정 파일을 올리고 Cloudflare에 저장소를 연결해 새 주소가 뜨는지 확인 ② `src/save/move.ts`의 `MOVE_NOTICE`를 켜서 배포하면 예전 주소가 이사 안내로 바뀐다 |
+| 순서 | ① 설정 파일을 올리고 Cloudflare에 저장소를 연결해 새 주소가 뜨는지 확인 ✅ ② `src/save/move.ts`의 `MOVE_NOTICE`를 켜서 배포하면 예전 주소가 이사 안내로 바뀐다 ✅ (v1.1.1) |
 
 - 홈 화면에 설치한 사람은 새 주소에서 다시 설치해야 한다 (설치도 주소마다 따로).
 - 예전 주소(GitHub Pages)는 같은 코드를 그대로 배포하고, 주소를 보고 이사 안내만 띄운다.

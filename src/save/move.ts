@@ -6,8 +6,8 @@
 
 export const NEW_SITE = 'https://dosa.gaon.dev/';
 
-/** 예전 주소에서 이사 안내를 띄운다. 새 주소가 잘 뜨는 걸 확인한 뒤에 켠다 */
-export const MOVE_NOTICE = false;
+/** 예전 주소에서 이사 안내를 띄운다 (새 주소가 잘 뜨는 걸 확인한 뒤 v1.1.1에서 켬) */
+export const MOVE_NOTICE = true;
 
 /** 예전 주소 (GitHub Pages) */
 const OLD_HOSTS: readonly string[] = ['qkrgusdn1942.github.io'];

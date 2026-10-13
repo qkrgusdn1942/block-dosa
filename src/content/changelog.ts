@@ -24,6 +24,24 @@ export const CHANGE_LABELS: Record<ChangeKind, string> = { up: '상향', down: '
 
 export const RELEASES: readonly Release[] = [
   {
+    version: 'v1.1.1',
+    date: '2026-10-13',
+    title: '새 주소로 이사했어요',
+    sections: [
+      {
+        title: '주소',
+        lines: [
+          {
+            kind: 'change',
+            target: '🏠 새 주소',
+            text: 'qkrgusdn1942.github.io/block-dosa → dosa.gaon.dev. 예전 주소에서 기록을 그대로 가지고 올 수 있음',
+          },
+          { kind: 'change', target: '📲 홈 화면 설치', text: '홈 화면에 추가해 두었다면 새 주소에서 한 번 더 추가' },
+        ],
+      },
+    ],
+  },
+  {
     version: 'v1.1',
     date: '2026-10-12',
     title: '판이 다양해지고, 소모품이 세졌어요',

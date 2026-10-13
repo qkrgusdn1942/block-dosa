@@ -2,7 +2,7 @@
 
 블록 퍼즐 × 로그라이크 모바일 웹 게임. 기획 문서는 [docs/00-overview.md](docs/00-overview.md)에서 시작.
 
-**플레이:** https://qkrgusdn1942.github.io/block-dosa/
+**플레이:** https://dosa.gaon.dev/ (예전 주소 qkrgusdn1942.github.io/block-dosa 는 이사 안내만 한다)
 
 `main`에 push하면 두 곳에 자동으로 배포된다.
 - **Cloudflare (새 주소 `dosa.gaon.dev`):** Workers Builds가 `npm test && npm run build` 후 `dist/`를 올린다 ([wrangler.jsonc](wrangler.jsonc)).

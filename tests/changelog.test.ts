@@ -7,7 +7,8 @@ import { newProfile } from '../src/core/profile';
 /** 변경 사항 화면의 숫자가 실제 게임 수치와 어긋나지 않게 */
 describe('변경 사항', () => {
   const latest = RELEASES[0];
-  const line = (target: string) => latest.sections.flatMap((s) => s.lines).find((l) => l.target.includes(target))!;
+  const v11 = RELEASES.find((release) => release.version === 'v1.1')!;
+  const line = (target: string) => v11.sections.flatMap((s) => s.lines).find((l) => l.target.includes(target))!;
 
   it('맨 위가 최신 버전이고, 처음 프로필은 아직 안 본 것으로', () => {
     expect(LATEST_VERSION).toBe(latest.version);
