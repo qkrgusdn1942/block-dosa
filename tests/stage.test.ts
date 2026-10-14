@@ -239,6 +239,23 @@ describe('막힘과 소모품', () => {
     expect(emptied).toBeGreaterThan(8);
   });
 
+  it('🙏 기사회생: 놓아서 막혔는데 되돌리기가 남아 있으면 기다렸다가, 버튼(giveUp)을 누르면 그때 쓴다', () => {
+    // 빈칸이 모두 떨어져 있어서 막대3은 못 놓고, 점을 (0, 0)에 놓아도 줄이 안 지워진다
+    const board = boardFrom(['.#.#####', '#.######', '.#.#####', '###.####', '####.###', '#####.##', '######.#', '#######.']);
+    const ready = (undoLeft: number) =>
+      stageWith({ board, discardsLeft: 0, rescueReady: true, undoLeft, hand: hand(dot(), pieceOf('bar3', 0, 1001), null) });
+    const placed = place(ready(1), 0, 0, 0);
+    expect(placed.status).toBe('playing');
+    expect(isStuck(placed)).toBe(true);
+    // 되돌리기로 무를 수도 있으니 런에 한 번뿐인 기사회생을 저절로 쓰지 않는다
+    expect(placed.rescued).toBe(false);
+    const rescued = stageReducer(placed, { type: 'giveUp' });
+    expect(rescued.status).toBe('playing');
+    expect(rescued.rescued).toBe(true);
+    // 되돌리기를 이미 썼으면 막히는 순간 저절로 쓴다
+    expect(place(ready(0), 0, 0, 0).rescued).toBe(true);
+  });
+
   it('🙏 기사회생으로도 안 풀리면 그때 실패', () => {
     const stage = stageWith({
       board: stuckBoard,

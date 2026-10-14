@@ -778,6 +778,12 @@ button:disabled {
   background: var(--accent);
 }
 
+/* 막혔을 때 🙏 기사회생 (포기 대신) */
+.ctrl.rescue {
+  background: var(--gold);
+  color: var(--ink);
+}
+
 .ctrl:disabled {
   opacity: 0.35;
 }

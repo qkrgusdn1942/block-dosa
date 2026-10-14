@@ -105,6 +105,8 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
     ) : stuck ? (
       stage.discardsLeft > 0 ? (
         '놓을 자리가 없어요 · 버리기를 써보세요'
+      ) : stage.rescueReady ? (
+        '놓을 자리가 없어요 · 되돌리기나 🙏 기사회생을 쓰세요'
       ) : (
         '놓을 자리가 없어요 · 되돌리기·소모품을 쓰거나 포기하세요'
       )
@@ -363,9 +365,16 @@ export function Game({ runId, initial, merit, onRunEnd, onNew, onRetry, onTraini
         />
         <div className="controls">
           {giveUp ? (
-            <button className="ctrl danger" onClick={() => stageAction({ type: 'giveUp' })}>
-              포기
-            </button>
+            // 막힘을 끝내는 버튼. 🙏 기사회생이 남아 있으면 런을 끝내지 않고 가장 많이 찬 두 줄을 비운다
+            stage.rescueReady ? (
+              <button className="ctrl rescue" onClick={() => stageAction({ type: 'giveUp' })}>
+                🙏 기사회생
+              </button>
+            ) : (
+              <button className="ctrl danger" onClick={() => stageAction({ type: 'giveUp' })}>
+                포기
+              </button>
+            )
           ) : (
             <button
               className={mode.kind === 'discard' ? 'ctrl active' : 'ctrl'}

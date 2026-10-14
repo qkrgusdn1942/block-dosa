@@ -24,6 +24,23 @@ export const CHANGE_LABELS: Record<ChangeKind, string> = { up: '상향', down: '
 
 export const RELEASES: readonly Release[] = [
   {
+    version: 'v1.1.3',
+    date: '2026-10-14',
+    title: '막혔을 때 기사회생 버튼',
+    sections: [
+      {
+        title: '수련',
+        lines: [
+          {
+            kind: 'change',
+            target: '🙏 기사회생',
+            text: '놓아서 막혔는데 되돌리기가 남아 있으면 빨간 [포기]만 보였음 → [🙏 기사회생] 버튼이 떠서 두 줄을 비울지, 되돌릴지 고를 수 있음',
+          },
+        ],
+      },
+    ],
+  },
+  {
     version: 'v1.1.2',
     date: '2026-10-13',
     title: '공유하면 게임 주소가 같이 가요',
